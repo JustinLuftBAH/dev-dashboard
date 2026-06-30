@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <img src="saturn.png" alt="" id="corner-logo">
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo-text">dashboard</span>
+      </div>
+      <div id="nav-items"></div>
+      <div class="sidebar-add">
+        <button id="btn-add-category" class="nav-btn add-btn" title="Add Category">
+          <span class="nav-icon">+</span>
+          <span class="nav-label">Add Category</span>
+        </button>
+      </div>
+      <div class="sidebar-footer">
+        <button id="btn-stop-all" class="nav-btn danger" title="Stop All">
+          <span class="nav-icon">■</span>
+          <span class="nav-label">Stop All</span>
+        </button>
+        <button id="btn-settings" class="nav-btn" title="Settings">
+          <span class="nav-icon">⚙</span>
+          <span class="nav-label">Settings</span>
+        </button>
+      </div>
+    </nav>
+    <main id="content"></main>
+  </div>
+
+  <!-- Templates -->
+  <template id="tmpl-category">
+    <div class="category-view">
+      <div class="category-header">
+        <h2 class="category-title"></h2>
+        <span class="category-count"></span>
+        <!-- Inline rename (hidden by default) -->
+        <div class="inline-rename" style="display:none">
+          <input type="text" class="rename-input" placeholder="Category name">
+          <input type="text" class="rename-icon" placeholder="🚀" maxlength="2" style="width:45px" title="Icon">
+          <button class="rename-save">Save</button>
+          <button class="rename-delete">Delete</button>
+        </div>
+        <button class="btn-edit-cat" title="Edit">✎</button>
+      </div>
+      <div class="service-grid"></div>
+      <div class="add-menu-wrap">
+        <button class="btn-add-item">+ Add</button>
+        <div class="add-menu" style="display:none">
+          <button class="add-menu-opt" data-type="service">🔧 Service</button>
+          <button class="add-menu-opt" data-type="shortcut">⚡ Shortcut</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-service-card">
+    <div class="service-card">
+      <div class="card-header">
+        <div class="status-dot"></div>
+        <div class="card-info">
+          <div class="name-row">
+            <h3 class="service-name"></h3>
+            <button class="copy-cmd-btn" title="Copy terminal command" style="display:none"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="1"></rect><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"></path></svg></button>
+          </div>
+          <p class="service-desc"></p>
+        </div>
+        <div class="card-actions">
+          <input type="text" class="inline-input" style="display:none" placeholder="">
+          <select class="flag-select" style="display:none" title="Flag / profile"></select>
+          <button class="edit-svc-btn" title="Edit service">✎</button>
+          <button class="restart-btn" title="Restart" style="display:none">↻</button>
+          <button class="cancel-btn" title="Cancel" style="display:none">✕</button>
+          <button class="toggle-btn" title="Toggle"></button>
+        </div>
+      </div>
+      <div class="card-footer">
+        <div class="service-urls"></div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-settings">
+    <div class="settings-view">
+      <h2>Settings</h2>
+
+      <div class="settings-section">
+        <h3>Poll Interval</h3>
+        <div class="setting-row">
+          <label>Check service status every</label>
+          <select id="poll-interval">
+            <option value="2000">2 seconds</option>
+            <option value="5000">5 seconds</option>
+            <option value="10000">10 seconds</option>
+            <option value="30000">30 seconds</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Start Timeout</h3>
+        <div class="setting-row">
+          <label>Cancel loading spinner after</label>
+          <select id="start-timeout">
+            <option value="30">30 seconds</option>
+            <option value="60">1 minute</option>
+            <option value="90">90 seconds</option>
+            <option value="120">2 minutes</option>
+            <option value="180">3 minutes</option>
+            <option value="300">5 minutes</option>
+            <option value="0">Never (manual only)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Appearance</h3>
+        <div class="setting-row">
+          <label>Background animations</label>
+          <label class="switch">
+            <input type="checkbox" id="anim-toggle">
+            <span class="switch-track"></span>
+          </label>
+        </div>
+        <div class="setting-row" id="anim-speed-row">
+          <label>Animation speed</label>
+          <div class="slider-wrap">
+            <input type="range" id="anim-speed" min="0.25" max="3" step="0.25" value="1">
+            <span id="anim-speed-val" class="slider-val">1.0×</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label>Theme color</label>
+          <div class="color-row">
+            <span class="theme-swatch" data-color="#a78bfa" title="Purple (default)" style="background:#a78bfa"></span>
+            <span class="theme-swatch" data-color="#818cf8" title="Blue" style="background:#818cf8"></span>
+            <span class="theme-swatch" data-color="#4ade80" title="Green" style="background:#4ade80"></span>
+            <span class="theme-swatch" data-color="#f472b6" title="Pink" style="background:#f472b6"></span>
+            <span class="theme-swatch" data-color="#fb923c" title="Orange" style="background:#fb923c"></span>
+            <span class="theme-swatch" data-color="#22d3ee" title="Cyan" style="background:#22d3ee"></span>
+            <input type="color" id="theme-color" value="#a78bfa" title="Custom">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Config File</h3>
+        <p class="settings-hint">All categories and services are saved here</p>
+        <div class="config-path-row">
+          <code id="config-path"></code>
+          <button id="btn-open-config" class="btn-open-config">Open</button>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>App</h3>
+        <button id="btn-refresh" class="btn-secondary">Refresh Dashboard</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>Danger Zone</h3>
+        <button id="btn-reset" class="btn-danger">Reset to Defaults</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-category-form">
+    <div class="command-form inline-form">
+      <input type="text" class="cat-name" placeholder="Category name...">
+      <input type="text" class="cat-icon" placeholder="🚀" maxlength="2" style="width: 50px;" title="Icon (emoji)">
+      <button class="btn-save">Save</button>
+      <button class="btn-cancel">✕</button>
+    </div>
+  </template>
+
+
+
+  <template id="tmpl-command-form">
+    <div class="command-form">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" class="cmd-name" placeholder="My Service">
+      </div>
+      <div class="form-row">
+        <label>Description</label>
+        <input type="text" class="cmd-desc" placeholder="Node server :3000">
+      </div>
+      <div class="form-row">
+        <label>Port</label>
+        <input type="number" class="cmd-port" placeholder="3000">
+      </div>
+      <div class="form-row">
+        <label>Process match <span class="optional">(optional — if multiple services share this port, enter text from this one's command, e.g. the jar name, so status isn't confused)</span></label>
+        <input type="text" class="cmd-process-match" placeholder="e.g. my-app.jar or a unique word from the command">
+      </div>
+      <div class="form-row">
+        <label>Running color <span class="optional">(the hue shown when this service is on)</span></label>
+        <div class="color-row">
+          <input type="color" class="cmd-running-color" value="#4ade80">
+          <button type="button" class="btn-reset-color">Reset to default</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Start Command</label>
+        <textarea class="cmd-start" placeholder="cd ~/project && npm start &" rows="2"></textarea>
+      </div>
+      <div class="form-row">
+        <label>Stop Command <span class="optional">(optional — kills port if empty)</span></label>
+        <textarea class="cmd-stop" placeholder="" rows="2"></textarea>
+      </div>
+      <div class="form-row">
+        <label>Flag toggle <span class="optional">(optional — put {{flag}} in the start command; pick a value from the card dropdown)</span></label>
+        <div class="cmd-flags"></div>
+        <button type="button" class="btn-add-flag">+ Add flag option</button>
+      </div>
+      <div class="form-row">
+        <label>Links <span class="optional">(optional — open in Edge)</span></label>
+        <div class="cmd-links"></div>
+        <button type="button" class="btn-add-link">+ Add link</button>
+      </div>
+      <div class="form-row form-row-check">
+        <label class="check-label">
+          <input type="checkbox" class="cmd-requires-input">
+          Requires input before starting <span class="optional">(e.g. verification code)</span>
+        </label>
+      </div>
+      <div class="form-row cmd-input-label-row" style="display:none">
+        <label>Input Label</label>
+        <input type="text" class="cmd-input-label" placeholder="Verification code">
+      </div>
+      <div class="form-actions">
+        <button class="btn-save">Save</button>
+        <button class="btn-cancel">Cancel</button>
+        <button class="btn-delete" style="display:none">Delete</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-shortcut-card">
+    <div class="service-card shortcut-card">
+      <div class="card-header">
+        <div class="shortcut-icon">⚡</div>
+        <div class="card-info">
+          <h3 class="service-name"></h3>
+          <p class="service-desc shortcut-status"></p>
+        </div>
+        <div class="card-actions">
+          <button class="edit-svc-btn" title="Edit shortcut">✎</button>
+          <button class="toggle-btn" title="Toggle"></button>
+        </div>
+      </div>
+      <div class="shortcut-services"></div>
+    </div>
+  </template>
+
+  <template id="tmpl-shortcut-form">
+    <div class="command-form">
+      <div class="form-row">
+        <label>Shortcut Name</label>
+        <input type="text" class="shortcut-name" placeholder="Start Frontend Stack">
+      </div>
+      <div class="form-row">
+        <label>Description <span class="optional">(optional)</span></label>
+        <input type="text" class="shortcut-desc" placeholder="Starts all frontend services">
+      </div>
+      <div class="form-row">
+        <label>Services to include</label>
+        <div class="shortcut-service-list"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-save">Save</button>
+        <button class="btn-cancel">Cancel</button>
+        <button class="btn-delete" style="display:none">Delete</button>
+      </div>
+    </div>
+  </template>
+
+  <script src="js/app.js"></script>
+
+  <!-- Log Viewer Overlay -->
+  <div id="log-overlay" style="display:none">
+    <div class="log-panel">
+      <div class="log-header">
+        <div class="log-title">
+          <span class="log-dot"></span>
+          <span class="log-service-name"></span>
+        </div>
+        <div class="log-actions">
+          <button class="log-btn" id="log-clear" title="Clear logs">CLEAR</button>
+          <button class="log-btn" id="log-close" title="Close">✕</button>
+        </div>
+      </div>
+      <pre class="log-content"></pre>
+    </div>
+  </div>
+</body>
+</html>

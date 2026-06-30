@@ -1,0 +1,33 @@
+{
+  "name": "dev-dashboard",
+  "version": "1.0.0",
+  "description": "GUI dashboard for managing dev services",
+  "main": "main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --mac"
+  },
+  "author": "Justin Luft",
+  "license": "MIT",
+  "build": {
+    "appId": "com.justinluft.dev-dashboard",
+    "productName": "Dashboard",
+    "mac": {
+      "icon": "icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": "dir"
+    },
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "icon.icns",
+      "icon.png"
+    ],
+    "extraResources": []
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.15.3"
+  }
+}

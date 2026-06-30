@@ -1,0 +1,75 @@
+# Dev Dashboard
+
+A lightweight Electron app for managing local development services (databases, APIs, UIs,
+tunnels, etc.) from one place. Start/stop services, switch run profiles with a flag toggle,
+copy launch commands, open links, and watch status at a glance.
+
+## Features
+
+- **Service cards** grouped into categories — start/stop/restart, live status.
+- **Flag toggle** — pick a value (e.g. a Spring profile) that gets substituted into the start
+  command via `{{flag}}`, so one service can target different environments.
+- **Copy command** — copy a service's full, working terminal command to run it yourself.
+- **Links** — one or more links per service (open in your browser).
+- **Process match** — distinguish services that share a port (status won't get confused).
+- **Custom running color** — per-service hue shown when it's on.
+- **Appearance** — theme accent color, background star animation toggle + speed.
+- **Shortcuts** — group several services behind one start/stop button.
+
+## Requirements
+
+- **macOS** (built/tested on Apple Silicon).
+- **Node.js 18** recommended (newer majors may work; 18 is known-good).
+- Electron is installed as a dev dependency.
+
+## Run from source
+
+```bash
+npm install
+npm start
+```
+
+> Running from source shows the name "Electron" in the Dock. That's expected for dev mode.
+
+## Build a standalone app (.app)
+
+```bash
+npm run dist
+```
+
+Output: `dist/mac-arm64/Dashboard.app`. Drag it into `/Applications`. The packaged app shows
+the proper "Dashboard" name and icon.
+
+> `electron-builder` may require a newer Node major than 18 to package. If `npm run dist`
+> fails on Node 18, switch to a newer Node and retry.
+
+## Configuration
+
+Your services/categories live in a per-user config file (not in this repo):
+
+```
+~/Library/Application Support/Dashboard/config.json
+```
+
+The app starts blank — add your own categories and services from the UI (or edit the JSON via
+**Settings → Config File → Open**). Because config is per-user, your personal services are
+never committed; everyone customizes their own.
+
+## Project layout
+
+```
+main/          Electron main process (main.js) + preload.js  — service control, IPC
+renderer/      UI: index.html, css/app.css, js/app.js
+icon.png       App icon (source)
+icon.icns      App icon (packaged builds)
+package.json   Scripts + electron-builder config
+```
+
+## Contributing / iterating
+
+1. Clone the repo.
+2. `npm install`
+3. `npm start` to run from source; edit files under `main/` and `renderer/`.
+   - Renderer (HTML/CSS/JS) changes: reload the window (Cmd+R).
+   - Main process (`main/main.js`) changes: quit and `npm start` again.
+4. Open a PR / push a branch to share changes.
