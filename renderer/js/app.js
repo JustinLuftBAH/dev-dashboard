@@ -1,8 +1,10 @@
 // ── State ──
 let config = null;
 let statuses = {};
+let uptimes = {};        // serviceId -> start epoch ms (from OS process)
 let currentView = null;
 let pollTimer = null;
+let uptimeTicker = null;
 // Track services in loading state: svcId → { action: 'start'|'stop'|'restart', prevStatus: bool, startedAt: number }
 const loadingServices = new Map();
 
@@ -42,7 +44,10 @@ async function init() {
   buildStarfield();
   applyAnimationSettings();
   applyThemeColor();
+  applyBackgroundColor();
+  applyTextColor();
   statuses = await window.api.checkAll();
+  uptimes = await window.api.getUptimes();
   renderSidebar();
   if (config.categories.length > 0) {
     navigateTo(config.categories[0].id);
@@ -95,6 +100,7 @@ function applyAnimationSettings() {
 
 // ── App theme color (the accent hue; defaults to purple) ──
 const DEFAULT_THEME = "#a78bfa";
+const DEFAULT_BG = "#050510";
 function applyThemeColor() {
   const hex = config.settings?.themeColor || DEFAULT_THEME;
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -107,6 +113,49 @@ function applyThemeColor() {
   root.setProperty('--border', `rgba(${r}, ${g}, ${b}, 0.2)`);
   root.setProperty('--border-accent', `rgba(${r}, ${g}, ${b}, 0.5)`);
   root.setProperty('--bg-hover', `rgba(${r}, ${g}, ${b}, 0.06)`);
+}
+
+// Lighten/darken a hex color by an absolute per-channel amount.
+function shade(hex, amt) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!m) return hex;
+  const clamp = (n) => Math.max(0, Math.min(255, n));
+  const r = clamp(parseInt(m[1],16) + amt);
+  const g = clamp(parseInt(m[2],16) + amt);
+  const b = clamp(parseInt(m[3],16) + amt);
+  return '#' + [r,g,b].map(n => n.toString(16).padStart(2,'0')).join('');
+}
+
+// ── App text color (main text; dim/dark variants derived) ──
+function applyTextColor() {
+  const base = config.settings?.textColor;
+  const root = document.documentElement.style;
+  if (!base) {
+    ['--text','--text-dim','--text-dark'].forEach(v => root.removeProperty(v));
+    return;
+  }
+  if (!/^#?([a-f\d]{6})$/i.test(base)) return;
+  root.setProperty('--text', base);
+  root.setProperty('--text-dim', shade(base, -100));
+  root.setProperty('--text-dark', shade(base, -150));
+}
+
+// ── App background color (the deep base; lighter shades are derived) ──
+function applyBackgroundColor() {
+  const base = config.settings?.backgroundColor;
+  // No custom background set => keep the original CSS defaults (don't override).
+  if (!base) {
+    const root = document.documentElement.style;
+    ['--bg-deep','--bg','--bg-card','--bg-card-solid','--bg-input'].forEach(v => root.removeProperty(v));
+    return;
+  }
+  if (!/^#?([a-f\d]{6})$/i.test(base)) return;
+  const root = document.documentElement.style;
+  root.setProperty('--bg-deep', base);
+  root.setProperty('--bg', shade(base, 6));
+  root.setProperty('--bg-card', shade(base, 14));
+  root.setProperty('--bg-card-solid', shade(base, 22));
+  root.setProperty('--bg-input', shade(base, 4));
 }
 
 // ── Emoji picker popup (for category icon fields) ──
@@ -189,9 +238,42 @@ function startPolling() {
       refreshCurrentView();
     }
 
+    uptimes = await window.api.getUptimes();
     updateStatusDots();
+    updateUptimes();
     updateNavCounts();
   }, interval);
+
+  // Tick the displayed timers every 30s so minutes advance between polls.
+  if (uptimeTicker) clearInterval(uptimeTicker);
+  uptimeTicker = setInterval(updateUptimes, 30000);
+}
+
+// Format elapsed ms as H:MM (no seconds).
+function formatUptime(startMs) {
+  if (!startMs) return '';
+  let mins = Math.floor((Date.now() - startMs) / 60000);
+  if (mins < 0) mins = 0;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+// Update each visible card's uptime label from `uptimes`.
+function updateUptimes() {
+  document.querySelectorAll('.service-card').forEach(card => {
+    const id = card.dataset.serviceId;
+    if (!id) return;
+    const el = card.querySelector('.uptime');
+    if (!el) return;
+    const start = uptimes[id];
+    if (statuses[id] && start) {
+      el.textContent = '⏱ ' + formatUptime(start);
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  });
 }
 
 // ── Sidebar ──
@@ -203,6 +285,7 @@ function renderSidebar() {
     const btn = document.createElement('button');
     btn.className = 'nav-btn';
     btn.dataset.catId = cat.id;
+    btn.draggable = true;
     btn.innerHTML = `
       <span class="nav-icon">${cat.icon}</span>
       <span class="nav-label">${cat.name}</span>
@@ -210,6 +293,45 @@ function renderSidebar() {
     `;
     btn.addEventListener('click', () => navigateTo(cat.id));
     nav.appendChild(btn);
+  });
+
+  // ── Category drag & drop reorder ──
+  let draggedNav = null;
+  nav.addEventListener('dragstart', (e) => {
+    const b = e.target.closest('.nav-btn');
+    if (!b) return;
+    draggedNav = b;
+    b.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    requestAnimationFrame(() => b.style.opacity = '0.4');
+  });
+  nav.addEventListener('dragend', () => {
+    if (draggedNav) { draggedNav.classList.remove('dragging'); draggedNav.style.opacity = ''; draggedNav = null; }
+    nav.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  });
+  nav.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.nav-btn');
+    nav.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    if (target && target !== draggedNav) target.classList.add('drag-over');
+  });
+  nav.addEventListener('dragleave', (e) => {
+    const target = e.target.closest('.nav-btn');
+    if (target) target.classList.remove('drag-over');
+  });
+  nav.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const target = e.target.closest('.nav-btn');
+    if (!target || !draggedNav || target === draggedNav) return;
+    const btns = [...nav.querySelectorAll('.nav-btn')];
+    const fromIdx = btns.indexOf(draggedNav);
+    const toIdx = btns.indexOf(target);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = config.categories.splice(fromIdx, 1);
+    config.categories.splice(toIdx, 0, moved);
+    await window.api.saveConfig(config);
+    renderSidebar();
   });
 
   updateNavCounts();
@@ -268,6 +390,7 @@ function navigateTo(viewId) {
   } else {
     const cat = config.categories.find(c => c.id === viewId);
     if (cat) renderCategory(cat);
+    updateUptimes();
   }
 }
 
@@ -1011,6 +1134,69 @@ async function renderSettings() {
   themeColor.addEventListener('input', () => { config.settings.themeColor = themeColor.value; applyThemeColor(); markActiveSwatch(themeColor.value); });
   themeColor.addEventListener('change', () => setTheme(themeColor.value));
 
+  // Background color
+  const bgColor = view.querySelector('#bg-color');
+  const currentBg = config.settings?.backgroundColor || '#050510';
+  bgColor.value = currentBg;
+  const markActiveBg = (hex) => {
+    view.querySelectorAll('.bg-swatch').forEach(s => {
+      s.classList.toggle('active', (s.dataset.color || '').toLowerCase() === (hex || '').toLowerCase());
+    });
+  };
+  markActiveBg(currentBg);
+  const setBg = async (hex) => {
+    config.settings.backgroundColor = hex;
+    bgColor.value = hex;
+    markActiveBg(hex);
+    applyBackgroundColor();
+    await window.api.saveConfig(config);
+  };
+  view.querySelectorAll('.bg-swatch').forEach(s => {
+    s.addEventListener('click', () => setBg(s.dataset.color));
+  });
+  bgColor.addEventListener('input', () => { config.settings.backgroundColor = bgColor.value; applyBackgroundColor(); markActiveBg(bgColor.value); });
+  bgColor.addEventListener('change', () => setBg(bgColor.value));
+
+  // Text color
+  const textColor = view.querySelector('#text-color');
+  const currentText = config.settings?.textColor || '#e0ddf0';
+  textColor.value = currentText;
+  const markActiveText = (hex) => {
+    view.querySelectorAll('.text-swatch').forEach(s => {
+      s.classList.toggle('active', (s.dataset.color || '').toLowerCase() === (hex || '').toLowerCase());
+    });
+  };
+  markActiveText(currentText);
+  const setText = async (hex) => {
+    config.settings.textColor = hex;
+    textColor.value = hex;
+    markActiveText(hex);
+    applyTextColor();
+    await window.api.saveConfig(config);
+  };
+  view.querySelectorAll('.text-swatch').forEach(s => {
+    s.addEventListener('click', () => setText(s.dataset.color));
+  });
+  textColor.addEventListener('input', () => { config.settings.textColor = textColor.value; applyTextColor(); markActiveText(textColor.value); });
+  textColor.addEventListener('change', () => setText(textColor.value));
+
+  // Reset appearance (colors + animations only — keeps services)
+  view.querySelector('#btn-reset-appearance').addEventListener('click', async () => {
+    if (!confirm('Reset appearance (accent, background, text, animations) to defaults? Your services are kept.')) return;
+    delete config.settings.themeColor;
+    delete config.settings.backgroundColor;
+    delete config.settings.textColor;
+    config.settings.animationsEnabled = true;
+    config.settings.animationSpeed = 1;
+    await window.api.saveConfig(config);
+    applyThemeColor();
+    applyBackgroundColor();
+    applyTextColor();
+    applyAnimationSettings();
+    navigateTo('settings');
+    showToast('Appearance reset to default', 'success');
+  });
+
   // Config file path
   const configPath = await window.api.getConfigPath();
   view.querySelector('#config-path').textContent = configPath;
@@ -1023,14 +1209,15 @@ async function renderSettings() {
     window.api.reloadApp();
   });
 
-  // Reset button
-  view.querySelector('#btn-reset').addEventListener('click', async () => {
-    if (!confirm('Reset all settings, categories, and services?')) return;
-    config = await window.api.resetConfig();
+  // Wipe all services (removes every category/service — keeps appearance settings)
+  view.querySelector('#btn-wipe-services').addEventListener('click', async () => {
+    if (!confirm('Wipe ALL categories and services? This cannot be undone. Your appearance settings are kept.')) return;
+    config.categories = [];
+    await window.api.saveConfig(config);
     statuses = await window.api.checkAll();
     renderSidebar();
     navigateTo('settings');
-    showToast('Reset to defaults', 'success');
+    showToast('All services wiped', 'success');
   });
 
   const content = document.getElementById('content');

@@ -288,6 +288,39 @@ app.whenReady().then(() => {
     return statuses;
   });
 
+  // Returns { serviceId: startEpochMs } for running services (from the OS process),
+  // so the UI can show how long each has been running. Survives app reloads.
+  ipcMain.handle('get-uptimes', async () => {
+    const out = {};
+    for (const cat of config.categories) {
+      for (const svc of cat.services) {
+        try {
+          if (svc.checkType === 'docker' && svc.dockerName) {
+            const started = await runCommand(`docker inspect -f '{{.State.StartedAt}}' ${svc.dockerName} 2>/dev/null || true`).catch(() => '');
+            const t = Date.parse(started.trim());
+            if (!isNaN(t)) out[svc.id] = t;
+          } else if (svc.port) {
+            const pids = (await runCommand(`lsof -ti tcp:${svc.port} -sTCP:LISTEN 2>/dev/null || true`).catch(() => ''))
+              .split('\n').map(s => s.trim()).filter(Boolean);
+            let pid = pids[0];
+            if (svc.processMatch && pids.length) {
+              for (const p of pids) {
+                const cmd = await runCommand(`ps -p ${p} -o command= 2>/dev/null || true`).catch(() => '');
+                if (cmd.includes(svc.processMatch)) { pid = p; break; }
+              }
+            }
+            if (pid) {
+              const lstart = (await runCommand(`ps -o lstart= -p ${pid} 2>/dev/null || true`).catch(() => '')).trim();
+              const t = Date.parse(lstart);
+              if (!isNaN(t)) out[svc.id] = t;
+            }
+          }
+        } catch { /* ignore individual failures */ }
+      }
+    }
+    return out;
+  });
+
   ipcMain.handle('start-service', async (_, service, inputValue) => {
     return await startService(service, inputValue);
   });

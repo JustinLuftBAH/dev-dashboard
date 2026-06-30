@@ -72,6 +72,7 @@
           <p class="service-desc"></p>
         </div>
         <div class="card-actions">
+          <span class="uptime" title="Running time (hours:minutes)" style="display:none"></span>
           <input type="text" class="inline-input" style="display:none" placeholder="">
           <select class="flag-select" style="display:none" title="Flag / profile"></select>
           <button class="edit-svc-btn" title="Edit service">✎</button>
@@ -136,7 +137,7 @@
           </div>
         </div>
         <div class="setting-row">
-          <label>Theme color</label>
+          <label>Accent color <span class="settings-hint">buttons, highlights, borders</span></label>
           <div class="color-row">
             <span class="theme-swatch" data-color="#a78bfa" title="Purple (default)" style="background:#a78bfa"></span>
             <span class="theme-swatch" data-color="#818cf8" title="Blue" style="background:#818cf8"></span>
@@ -146,6 +147,32 @@
             <span class="theme-swatch" data-color="#22d3ee" title="Cyan" style="background:#22d3ee"></span>
             <input type="color" id="theme-color" value="#a78bfa" title="Custom">
           </div>
+        </div>
+        <div class="setting-row">
+          <label>Background color <span class="settings-hint">the app's dark base</span></label>
+          <div class="color-row">
+            <span class="bg-swatch" data-color="#050510" title="Midnight (default)" style="background:#050510"></span>
+            <span class="bg-swatch" data-color="#0a0a0a" title="Black" style="background:#0a0a0a"></span>
+            <span class="bg-swatch" data-color="#0c1322" title="Navy" style="background:#0c1322"></span>
+            <span class="bg-swatch" data-color="#120a1e" title="Plum" style="background:#120a1e"></span>
+            <span class="bg-swatch" data-color="#0a1410" title="Forest" style="background:#0a1410"></span>
+            <input type="color" id="bg-color" value="#050510" title="Custom">
+          </div>
+        </div>
+        <div class="setting-row">
+          <label>Text color <span class="settings-hint">main text</span></label>
+          <div class="color-row">
+            <span class="text-swatch" data-color="#e0ddf0" title="Default" style="background:#e0ddf0"></span>
+            <span class="text-swatch" data-color="#ffffff" title="White" style="background:#ffffff"></span>
+            <span class="text-swatch" data-color="#cbd5e1" title="Slate" style="background:#cbd5e1"></span>
+            <span class="text-swatch" data-color="#fde68a" title="Amber" style="background:#fde68a"></span>
+            <span class="text-swatch" data-color="#a7f3d0" title="Mint" style="background:#a7f3d0"></span>
+            <input type="color" id="text-color" value="#e0ddf0" title="Custom">
+          </div>
+        </div>
+        <div class="setting-row">
+          <label>Reset appearance <span class="settings-hint">colors &amp; animations only</span></label>
+          <button id="btn-reset-appearance" class="btn-secondary">Reset to Default</button>
         </div>
       </div>
 
@@ -165,7 +192,8 @@
 
       <div class="settings-section">
         <h3>Danger Zone</h3>
-        <button id="btn-reset" class="btn-danger">Reset to Defaults</button>
+        <p class="settings-hint">Wipe every category and service. Your appearance settings are kept.</p>
+        <button id="btn-wipe-services" class="btn-danger">Wipe All Services</button>
       </div>
     </div>
   </template>

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
   checkService: (service) => ipcRenderer.invoke('check-service', service),
   checkAll: () => ipcRenderer.invoke('check-all'),
+  getUptimes: () => ipcRenderer.invoke('get-uptimes'),
   startService: (service, input) => ipcRenderer.invoke('start-service', service, input),
   stopService: (service) => ipcRenderer.invoke('stop-service', service),
   restartService: (service) => ipcRenderer.invoke('restart-service', service),
