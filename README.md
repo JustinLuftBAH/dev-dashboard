@@ -21,13 +21,22 @@ copy launch commands, open links, and watch status at a glance.
 
 ## Quick launch (`dashboardgui` command)
 
-Set up a `dashboardgui` terminal command so you can open the app from anywhere:
+Set up a `dashboardgui` terminal command so you can open the app from anywhere.
+
+First, make sure you have **Node.js 18** installed (`node -v`). If not, install it
+(e.g. `brew install node@18`).
+
+Then, from the repo folder, run these three commands **one at a time**:
 
 ```bash
-npm install            # first time only
-./scripts/install.sh   # registers the `dashboardgui` command (no sudo)
-source ~/.zshrc        # or open a new terminal
+npm install
+./scripts/install.sh
+source ~/.zshrc
 ```
+
+`npm install` pulls in Electron (first time only), `install.sh` registers the
+`dashboardgui` command (no sudo), and `source ~/.zshrc` loads it into your current shell
+(or just open a new terminal).
 
 Then just run:
 
@@ -36,8 +45,12 @@ dashboardgui
 ```
 
 It opens the packaged `Dashboard.app` if you've built one, otherwise it runs from source
-(detached, so your terminal stays free). The installer adds a `dashboardgui` alias to your
-shell rc file — re-running it is safe.
+(detached, so your terminal stays free) and prints its log to `dashboard.log` if anything
+goes wrong. The installer adds a `dashboardgui` alias to your shell rc file — re-running it
+is safe.
+
+> **Tip:** run the setup commands individually, not as one pasted block. Some shells don't
+> treat `#` as a comment interactively, which can turn a pasted comment into a bad argument.
 
 ## Requirements
 
