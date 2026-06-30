@@ -13,8 +13,31 @@ copy launch commands, open links, and watch status at a glance.
 - **Links** — one or more links per service (open in your browser).
 - **Process match** — distinguish services that share a port (status won't get confused).
 - **Custom running color** — per-service hue shown when it's on.
-- **Appearance** — theme accent color, background star animation toggle + speed.
+- **Appearance** — theme accent, background, and text colors; background star animation
+  toggle + speed; reset-appearance and wipe-all-services buttons.
+- **Uptime timers** — each running service shows how long it's been up (H:MM).
+- **Drag to reorder** — drag service cards and sidebar categories into any order.
 - **Shortcuts** — group several services behind one start/stop button.
+
+## Quick launch (`dashboardgui` command)
+
+Set up a `dashboardgui` terminal command so you can open the app from anywhere:
+
+```bash
+npm install            # first time only
+./scripts/install.sh   # registers the `dashboardgui` command (no sudo)
+source ~/.zshrc        # or open a new terminal
+```
+
+Then just run:
+
+```bash
+dashboardgui
+```
+
+It opens the packaged `Dashboard.app` if you've built one, otherwise it runs from source
+(detached, so your terminal stays free). The installer adds a `dashboardgui` alias to your
+shell rc file — re-running it is safe.
 
 ## Requirements
 
