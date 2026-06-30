@@ -52,6 +52,23 @@ is safe.
 > **Tip:** run the setup commands individually, not as one pasted block. Some shells don't
 > treat `#` as a comment interactively, which can turn a pasted comment into a bad argument.
 
+### Slow or stuck Electron download
+
+`npm install` downloads a ~100MB Electron binary the first time. On a slow or proxied
+network this can crawl or stall. To skip the download, get the
+`electron-v<version>-darwin-arm64.zip` file from a teammate who already has it (it lives in
+`~/Library/Caches/electron/<hash>/` on their machine), drop it in your `~/Downloads`, then:
+
+```bash
+bash scripts/seed-electron.sh
+npm install
+```
+
+`seed-electron.sh` finds the zip in `~/Downloads` (or `~/Desktop`), figures out the correct
+cache location automatically, and copies it there so `npm install` uses it instead of
+downloading. `dashboardgui` also does this automatically if it finds a matching zip in your
+Downloads/Desktop.
+
 ## Requirements
 
 - **macOS** (built/tested on Apple Silicon).

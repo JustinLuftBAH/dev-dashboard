@@ -23,6 +23,12 @@ cd "$REPO_DIR"
 # Make sure dependencies (and specifically the Electron binary) are installed.
 # Checking for the binary — not just node_modules/ — catches partial/interrupted installs.
 if [ ! -x node_modules/.bin/electron ]; then
+  # If a downloaded Electron zip is sitting in Downloads/Desktop, seed the cache
+  # from it first so npm install doesn't have to download the binary.
+  if ls "$HOME/Downloads"/electron-v*-darwin-*.zip "$HOME/Desktop"/electron-v*-darwin-*.zip "$REPO_DIR"/electron-v*-darwin-*.zip >/dev/null 2>&1; then
+    echo "Found a local Electron zip — seeding the cache to skip the download..."
+    bash "$SCRIPT_DIR/seed-electron.sh" || true
+  fi
   echo "Installing dependencies (this can take a minute the first time)..."
   if ! npm install; then
     echo
