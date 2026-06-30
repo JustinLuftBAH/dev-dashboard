@@ -19,6 +19,19 @@ copy launch commands, open links, and watch status at a glance.
 - **Drag to reorder** — drag service cards and sidebar categories into any order.
 - **Shortcuts** — group several services behind one start/stop button.
 
+## Download (no install)
+
+Just want to *use* the dashboard? Grab the prebuilt app — no Node.js, npm, or Electron
+needed:
+
+1. Go to the [**Releases** page](https://github.com/JustinLuftBAH/dev-dashboard/releases).
+2. Download `Dashboard-mac-arm64.zip` and unzip it.
+3. First launch: **right-click `Dashboard.app` → Open** (it's unsigned, so macOS needs a
+   one-time approval).
+
+> For macOS on Apple Silicon. If you want to **modify/iterate** the dashboard, run from
+> source instead (below).
+
 ## Quick launch (`dashboardgui` command)
 
 Set up a `dashboardgui` terminal command so you can open the app from anywhere.
