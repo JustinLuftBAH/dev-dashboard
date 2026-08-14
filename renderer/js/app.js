@@ -7,6 +7,28 @@ let pollTimer = null;
 let uptimeTicker = null;
 // Track services in loading state: svcId → { action: 'start'|'stop'|'restart', prevStatus: bool, startedAt: number }
 const loadingServices = new Map();
+// Services that died unexpectedly or failed to start. Cleared when the user
+// starts them again or they come back up. Drives the red "crashed" card state.
+const crashedServices = new Set();
+
+// Surface a service problem loudly: an in-app red toast AND a native OS
+// notification (so it's visible even when the dashboard isn't focused).
+async function notifyServiceError(svc, title, detail) {
+  const body = detail ? String(detail).replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  showToast(`${svc.name}: ${title}${body ? ' — ' + body : ''}`, 'error');
+  try { await window.api.notify(`${svc.name} — ${title}`, body || title); } catch {}
+}
+
+// Pull the most relevant error line out of a chunk of log text, skipping our
+// own "── … ──" marker lines and preferring lines that look like errors.
+function extractErrorLine(logText) {
+  if (!logText) return '';
+  const lines = logText.split('\n').map(l => l.trim())
+    .filter(l => l && !l.startsWith('──'));
+  const errLine = [...lines].reverse()
+    .find(l => /error|exception|fail|cannot|unable|refused|denied|no listener|eof/i.test(l));
+  return (errLine || lines[lines.length - 1] || '').slice(0, 200);
+}
 
 // ── Loading spinner helper ──
 function addLoadingDots(cardRoot) {
@@ -23,6 +45,7 @@ function removeLoadingDots(cardRoot) {
 }
 
 function setCardLoading(root, svcId, action) {
+  if (action === 'start' || action === 'restart') crashedServices.delete(svcId);
   const prevStatus = !!statuses[svcId];
   loadingServices.set(svcId, { action, prevStatus, startedAt: Date.now() });
   const dot = root.querySelector('.status-dot');
@@ -216,6 +239,110 @@ function attachEmojiPicker(inputEl) {
 }
 document.addEventListener('click', () => closeEmojiPicker());
 
+// ── Category context menu (right-click a sidebar category) ──
+let _activeContextMenu = null;
+let _contextMenuBtn = null;
+function closeContextMenu() {
+  if (_contextMenuBtn) { _contextMenuBtn.classList.remove('context-active'); _contextMenuBtn = null; }
+  if (_activeContextMenu) { _activeContextMenu.remove(); _activeContextMenu = null; }
+}
+document.addEventListener('mousedown', (e) => {
+  if (_activeContextMenu && !_activeContextMenu.contains(e.target)) closeContextMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeContextMenu(); });
+window.addEventListener('blur', () => closeContextMenu());
+
+function showCategoryContextMenu(x, y, cat, btn) {
+  closeContextMenu();
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+
+  const mkItem = (label, handler) => {
+    const item = document.createElement('button');
+    item.className = 'context-menu-item';
+    item.textContent = label;
+    item.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      closeContextMenu();
+      await handler();
+    });
+    return item;
+  };
+
+  menu.appendChild(mkItem('▶  Start all', () => startAllInCategory(cat)));
+  menu.appendChild(mkItem('■  Stop all', () => stopAllInCategory(cat)));
+
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, window.innerWidth - rect.width - 8) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - rect.height - 8) + 'px';
+  _activeContextMenu = menu;
+
+  // Keep the right-clicked category highlighted while the menu is open.
+  if (btn) { btn.classList.add('context-active'); _contextMenuBtn = btn; }
+}
+
+// Mark a (possibly on-screen) service card as loading for a start/stop action.
+function markServiceLoading(svc, action) {
+  if (action === 'start' || action === 'restart') crashedServices.delete(svc.id);
+  const card = document.querySelector(`.service-card[data-service-id="${svc.id}"]`);
+  if (card) {
+    setCardLoading(card, svc.id, action);
+  } else {
+    loadingServices.set(svc.id, { action, prevStatus: !!statuses[svc.id], startedAt: Date.now() });
+  }
+}
+
+async function startAllInCategory(cat) {
+  const services = cat.services.filter(s => s.type !== 'shortcut' && s.type !== 'build');
+  const skipped = [];
+  const failed = [];
+  let acted = 0;
+  for (const svc of services) {
+    if (statuses[svc.id]) continue;
+    if (svc.requiresInput) { skipped.push(svc.name); continue; }
+    markServiceLoading(svc, 'start');
+    const res = await window.api.startService(svc);
+    if (res && res.ok === false) {
+      loadingServices.delete(svc.id);
+      crashedServices.add(svc.id);
+      failed.push(svc.name);
+      notifyServiceError(svc, 'failed to start', res.error);
+    } else {
+      acted++;
+    }
+  }
+  if (skipped.length) {
+    showToast(`${skipped.join(', ')} need manual input — start separately`, 'error');
+  } else if (failed.length && acted === 0) {
+    showToast(`${cat.name} — ${failed.length} service${failed.length === 1 ? '' : 's'} failed to start`, 'error');
+  } else if (acted === 0) {
+    showToast(`${cat.name} — nothing to start`, 'info');
+  } else {
+    showToast(`${cat.name} — starting ${acted} service${acted === 1 ? '' : 's'}`, 'success');
+  }
+  updateStatusDots();
+  updateNavCounts();
+}
+
+async function stopAllInCategory(cat) {
+  const services = cat.services.filter(s => s.type !== 'shortcut' && s.type !== 'build');
+  let acted = 0;
+  for (const svc of services) {
+    if (!statuses[svc.id]) continue;
+    markServiceLoading(svc, 'stop');
+    await window.api.stopService(svc);
+    acted++;
+  }
+  if (acted === 0) {
+    showToast(`${cat.name} — nothing running`, 'info');
+  } else {
+    showToast(`${cat.name} — stopping ${acted} service${acted === 1 ? '' : 's'}`, 'success');
+  }
+  updateStatusDots();
+  updateNavCounts();
+}
+
 // ── Polling ──
 let prevStatuses = {};
 function startPolling() {
@@ -224,6 +351,31 @@ function startPolling() {
   pollTimer = setInterval(async () => {
     const oldStatuses = { ...statuses };
     statuses = await window.api.checkAll();
+
+    // ── Dead-process / crash detection ──
+    // A service that was up and is now down WITHOUT a pending user action
+    // (start/stop/restart) died on its own. Flag it and alert the user. Runs
+    // BEFORE resolveLoadingStates so a just-completed user stop (still in
+    // loadingServices here) isn't misreported as a crash.
+    for (const cat of config.categories) {
+      for (const svc of cat.services) {
+        if (svc.type === 'shortcut' || svc.type === 'build') continue;
+        const was = !!oldStatuses[svc.id];
+        const now = !!statuses[svc.id];
+        if (now) {
+          crashedServices.delete(svc.id); // recovered / running again
+        } else if (was && !loadingServices.has(svc.id) && !crashedServices.has(svc.id)) {
+          crashedServices.add(svc.id);
+          let detail = '';
+          try { detail = await window.api.getServiceLogs(svc.id, 20); } catch {}
+          notifyServiceError(svc, 'stopped unexpectedly', extractErrorLine(detail));
+        }
+      }
+    }
+
+    // Resolve loading states for ALL services (not just visible cards) so that
+    // spinners clear even when a linked service lives on another view.
+    resolveLoadingStates();
 
     // If any requiresInput service changed state, re-render to reset inputMode
     let needsRefresh = false;
@@ -262,6 +414,7 @@ function formatUptime(startMs) {
 // Update each visible card's uptime label from `uptimes`.
 function updateUptimes() {
   document.querySelectorAll('.service-card').forEach(card => {
+    if (card.classList.contains('build-card')) return; // uses "Last built", not uptime
     const id = card.dataset.serviceId;
     if (!id) return;
     const el = card.querySelector('.uptime');
@@ -307,32 +460,55 @@ function renderSidebar() {
   });
   nav.addEventListener('dragend', () => {
     if (draggedNav) { draggedNav.classList.remove('dragging'); draggedNav.style.opacity = ''; draggedNav = null; }
-    nav.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    nav.querySelectorAll('.drag-over, .drag-over-after').forEach(el => el.classList.remove('drag-over', 'drag-over-after'));
   });
   nav.addEventListener('dragover', (e) => {
+    if (!draggedNav) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const target = e.target.closest('.nav-btn');
-    nav.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    if (target && target !== draggedNav) target.classList.add('drag-over');
+    nav.querySelectorAll('.drag-over, .drag-over-after').forEach(el => el.classList.remove('drag-over', 'drag-over-after'));
+    if (target && target !== draggedNav) {
+      const rect = target.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      target.classList.add(after ? 'drag-over-after' : 'drag-over');
+    }
   });
   nav.addEventListener('dragleave', (e) => {
     const target = e.target.closest('.nav-btn');
-    if (target) target.classList.remove('drag-over');
+    if (target && !target.contains(e.relatedTarget)) target.classList.remove('drag-over', 'drag-over-after');
   });
   nav.addEventListener('drop', async (e) => {
     e.preventDefault();
     const target = e.target.closest('.nav-btn');
+    nav.querySelectorAll('.drag-over, .drag-over-after').forEach(el => el.classList.remove('drag-over', 'drag-over-after'));
     if (!target || !draggedNav || target === draggedNav) return;
-    const btns = [...nav.querySelectorAll('.nav-btn')];
-    const fromIdx = btns.indexOf(draggedNav);
-    const toIdx = btns.indexOf(target);
-    if (fromIdx < 0 || toIdx < 0) return;
+    const rect = target.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    const draggedId = draggedNav.dataset.catId;
+    const targetId = target.dataset.catId;
+    const fromIdx = config.categories.findIndex(c => c.id === draggedId);
+    if (fromIdx < 0) return;
     const [moved] = config.categories.splice(fromIdx, 1);
-    config.categories.splice(toIdx, 0, moved);
+    let insertIdx = config.categories.findIndex(c => c.id === targetId);
+    if (insertIdx < 0) { config.categories.splice(fromIdx, 0, moved); return; }
+    if (after) insertIdx += 1;
+    config.categories.splice(insertIdx, 0, moved);
     await window.api.saveConfig(config);
     renderSidebar();
   });
+
+  // Right-click a category to Start all / Stop all its services.
+  if (!nav.dataset.ctxBound) {
+    nav.dataset.ctxBound = '1';
+    nav.addEventListener('contextmenu', (e) => {
+      const btn = e.target.closest('.nav-btn');
+      if (!btn) return;
+      e.preventDefault();
+      const cat = config.categories.find(c => c.id === btn.dataset.catId);
+      if (cat) showCategoryContextMenu(e.clientX, e.clientY, cat, btn);
+    });
+  }
 
   updateNavCounts();
 
@@ -364,7 +540,7 @@ function updateNavCounts() {
   config.categories.forEach(cat => {
     const el = document.querySelector(`[data-count-id="${cat.id}"]`);
     if (!el) return;
-    const realServices = cat.services.filter(s => s.type !== 'shortcut');
+    const realServices = cat.services.filter(s => s.type !== 'shortcut' && s.type !== 'build');
     const total = realServices.length;
     if (total === 0) { el.textContent = ''; return; }
     const running = realServices.filter(s => statuses[s.id]).length;
@@ -378,6 +554,9 @@ function updateNavCounts() {
 // ── Navigation ──
 function navigateTo(viewId) {
   currentView = viewId;
+  // Portaled dropdown menus (see renderCategory) must not survive navigating
+  // away from the category that created them.
+  document.querySelectorAll('.flag-dropdown-menu').forEach(el => el.remove());
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const activeBtn = document.querySelector(`[data-cat-id="${viewId}"]`);
   if (activeBtn) activeBtn.classList.add('active');
@@ -396,6 +575,11 @@ function navigateTo(viewId) {
 
 // ── Category View ──
 function renderCategory(cat) {
+  // Flag dropdown menus are portaled to <body> (position: fixed) so they can
+  // escape a card's local stacking context — clean up any leftovers from the
+  // previous render before rebuilding cards, or they'd pile up as orphans.
+  document.querySelectorAll('.flag-dropdown-menu').forEach(el => el.remove());
+
   const tmpl = document.getElementById('tmpl-category');
   const view = tmpl.content.cloneNode(true);
   const root = view.querySelector('.category-view');
@@ -409,7 +593,7 @@ function renderCategory(cat) {
   attachEmojiPicker(renameIcon);
 
   titleEl.textContent = `${cat.icon} ${cat.name}`;
-  const realServices = cat.services.filter(s => s.type !== 'shortcut');
+  const realServices = cat.services.filter(s => s.type !== 'shortcut' && s.type !== 'build');
   const running = realServices.filter(s => statuses[s.id]).length;
   countEl.textContent = `${running}/${realServices.length} running`;
 
@@ -464,6 +648,8 @@ function renderCategory(cat) {
     let cardEl;
     if (svc.type === 'shortcut') {
       cardEl = createShortcutCard(svc, cat);
+    } else if (svc.type === 'build') {
+      cardEl = createBuildCard(svc, cat);
     } else {
       cardEl = createServiceCard(svc, cat);
     }
@@ -482,48 +668,61 @@ function renderCategory(cat) {
     requestAnimationFrame(() => card.style.opacity = '0.4');
   });
 
-  grid.addEventListener('dragend', (e) => {
+  const clearCardIndicators = () =>
+    grid.querySelectorAll('.drag-over, .drag-over-after')
+      .forEach(el => el.classList.remove('drag-over', 'drag-over-after'));
+
+  grid.addEventListener('dragend', () => {
     if (draggedEl) {
       draggedEl.classList.remove('dragging');
       draggedEl.style.opacity = '';
       draggedEl = null;
     }
-    // Remove all drop indicators
-    grid.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    clearCardIndicators();
   });
 
   grid.addEventListener('dragover', (e) => {
+    if (!draggedEl) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const target = e.target.closest('.service-card, .shortcut-card');
-    // Clear previous indicators
-    grid.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    clearCardIndicators();
     if (target && target !== draggedEl) {
-      target.classList.add('drag-over');
+      const rect = target.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      target.classList.add(after ? 'drag-over-after' : 'drag-over');
     }
   });
 
   grid.addEventListener('dragleave', (e) => {
     const target = e.target.closest('.service-card, .shortcut-card');
-    if (target) target.classList.remove('drag-over');
+    // Ignore leaves that move to a child of the same card (avoids flicker)
+    if (target && !target.contains(e.relatedTarget)) {
+      target.classList.remove('drag-over', 'drag-over-after');
+    }
   });
 
   grid.addEventListener('drop', async (e) => {
     e.preventDefault();
     const target = e.target.closest('.service-card, .shortcut-card');
+    clearCardIndicators();
     if (!target || !draggedEl || target === draggedEl) return;
 
-    const cards = [...grid.querySelectorAll('.service-card, .shortcut-card')];
-    const fromIdx = cards.indexOf(draggedEl);
-    const toIdx = cards.indexOf(target);
-    if (fromIdx < 0 || toIdx < 0) return;
+    const rect = target.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    const draggedId = draggedEl.dataset.serviceId;
+    const targetId = target.dataset.serviceId;
 
-    // Reorder in config
+    // Reorder by stable id so the result is independent of drag direction.
+    const fromIdx = cat.services.findIndex(s => s.id === draggedId);
+    if (fromIdx < 0) return;
     const [moved] = cat.services.splice(fromIdx, 1);
-    cat.services.splice(toIdx, 0, moved);
-    await window.api.saveConfig(config);
+    let insertIdx = cat.services.findIndex(s => s.id === targetId);
+    if (insertIdx < 0) { cat.services.splice(fromIdx, 0, moved); return; }
+    if (after) insertIdx += 1;
+    cat.services.splice(insertIdx, 0, moved);
 
-    // Re-render
+    await window.api.saveConfig(config);
     renderCategory(cat);
   });
 
@@ -555,6 +754,7 @@ function renderCategory(cat) {
     opt.addEventListener('click', () => {
       addMenu.style.display = 'none';
       if (opt.dataset.type === 'service') showServiceForm(cat, null);
+      else if (opt.dataset.type === 'build') showBuildForm(cat, null);
       else if (opt.dataset.type === 'shortcut') showShortcutForm(cat, null);
     });
   });
@@ -616,6 +816,79 @@ function hexToGlow(hex) {
   return `rgba(${r}, ${g}, ${b}, 0.6)`;
 }
 
+// ── Custom color picker modal ──
+// A themed, centered replacement for the OS's native color-picker window
+// (used e.g. for per-flag-option colors) — preset swatches for one-click
+// picks, plus a native <input type="color"> for anything custom. `onCommit`
+// fires immediately for both swatch clicks and live custom-picker changes.
+const COLOR_PICKER_PRESETS = ['#a78bfa', '#818cf8', '#4ade80', '#f472b6', '#fb923c', '#22d3ee', '#f87171', '#fbbf24', '#c9a555'];
+function openColorPicker(initialColor, onCommit) {
+  let overlay = document.getElementById('color-picker-overlay');
+  if (overlay) overlay.remove();
+
+  overlay = document.createElement('div');
+  overlay.id = 'color-picker-overlay';
+
+  const panel = document.createElement('div');
+  panel.className = 'color-picker-panel';
+
+  const header = document.createElement('div');
+  header.className = 'color-picker-header';
+  const title = document.createElement('span');
+  title.className = 'color-picker-title';
+  title.textContent = 'Choose Color';
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'color-picker-close';
+  closeBtn.textContent = '✕';
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement('div');
+  body.className = 'color-picker-body';
+
+  const swatchGrid = document.createElement('div');
+  swatchGrid.className = 'color-picker-swatches';
+  COLOR_PICKER_PRESETS.forEach(hex => {
+    const sw = document.createElement('div');
+    sw.className = 'color-picker-swatch' + (hex.toLowerCase() === (initialColor || '').toLowerCase() ? ' selected' : '');
+    sw.style.background = hex;
+    sw.addEventListener('click', () => {
+      onCommit(hex);
+      closePicker();
+    });
+    swatchGrid.appendChild(sw);
+  });
+
+  const customRow = document.createElement('div');
+  customRow.className = 'color-picker-custom-row';
+  const customLabel = document.createElement('label');
+  customLabel.textContent = 'Custom';
+  const customInput = document.createElement('input');
+  customInput.type = 'color';
+  customInput.value = initialColor || '#4ade80';
+  customInput.addEventListener('input', () => onCommit(customInput.value));
+  customRow.appendChild(customLabel);
+  customRow.appendChild(customInput);
+
+  body.appendChild(swatchGrid);
+  body.appendChild(customRow);
+  panel.appendChild(header);
+  panel.appendChild(body);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  function closePicker() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKeydown);
+  }
+  function onKeydown(e) { if (e.key === 'Escape') closePicker(); }
+
+  closeBtn.addEventListener('click', closePicker);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closePicker(); });
+  document.addEventListener('keydown', onKeydown);
+}
+
 function createServiceCard(svc, cat) {
   const tmpl = document.getElementById('tmpl-service-card');
   const card = tmpl.content.cloneNode(true);
@@ -623,12 +896,13 @@ function createServiceCard(svc, cat) {
   root.draggable = true;
 
   const isRunning = statuses[svc.id];
-  root.classList.add(isRunning ? 'running' : 'stopped');
+  const isCrashed = !isRunning && crashedServices.has(svc.id);
+  root.classList.add(isRunning ? 'running' : (isCrashed ? 'crashed' : 'stopped'));
   root.dataset.serviceId = svc.id;
   applyRunningColor(root, svc);
 
   const dot = card.querySelector('.status-dot');
-  dot.classList.add(isRunning ? 'running' : 'stopped');
+  dot.classList.add(isRunning ? 'running' : (isCrashed ? 'crashed' : 'stopped'));
 
   card.querySelector('.service-name').textContent = svc.name;
   card.querySelector('.service-desc').textContent = svc.description;
@@ -658,29 +932,113 @@ function createServiceCard(svc, cat) {
   const inlineInput = card.querySelector('.inline-input');
 
   // Flag toggle dropdown — lets you pick which value gets substituted for
-  // {{flag}} in the start command (e.g. a Spring profile).
-  const flagSelect = card.querySelector('.flag-select');
-  if (flagSelect) {
+  // {{flag}} in the start command (e.g. a Spring profile). Custom-built
+  // (not a native <select>) so it can be fully themed — macOS renders native
+  // <select> popups with its own system menu style that CSS can't override.
+  const flagDropdown = card.querySelector('.flag-dropdown');
+  if (flagDropdown) {
     if (Array.isArray(svc.flagOptions) && svc.flagOptions.length) {
-      flagSelect.innerHTML = '';
-      svc.flagOptions.forEach(opt => {
-        const o = document.createElement('option');
-        o.value = opt.value;
-        o.textContent = opt.label || opt.value;
-        flagSelect.appendChild(o);
+      const btn = flagDropdown.querySelector('.flag-dropdown-btn');
+      const menu = flagDropdown.querySelector('.flag-dropdown-menu');
+      let currentValue = svc.flag || svc.flagOptions[0].value;
+
+      const closeMenu = () => { menu.classList.remove('open'); };
+      const setBtnDisplay = (opt) => {
+        btn.textContent = opt.label || opt.value;
+        btn.style.color = opt.color || '';
+      };
+      const positionMenu = () => {
+        const r = btn.getBoundingClientRect();
+        menu.style.left = 'auto';
+        menu.style.top = (r.bottom + 4) + 'px';
+        // Right-align to the button, but clamp so it never runs off-screen.
+        let right = window.innerWidth - r.right;
+        if (right < 8) right = 8;
+        menu.style.right = right + 'px';
+      };
+      const renderOptions = () => {
+        menu.innerHTML = '';
+        svc.flagOptions.forEach(opt => {
+          const item = document.createElement('div');
+          item.className = 'flag-dropdown-item' + (opt.value === currentValue ? ' selected' : '');
+
+          const label = document.createElement('span');
+          label.className = 'flag-dropdown-label';
+          label.textContent = opt.label || opt.value;
+          if (opt.color) label.style.color = opt.color;
+          item.appendChild(label);
+
+          if (opt.value === currentValue) {
+            const check = document.createElement('span');
+            check.className = 'flag-dropdown-check';
+            check.textContent = '✓';
+            item.appendChild(check);
+          }
+
+          item.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            currentValue = opt.value;
+            setBtnDisplay(opt);
+            closeMenu();
+            const liveSvc = findService(svc.id) || svc;
+            liveSvc.flag = currentValue;
+            svc.flag = currentValue;
+            await window.api.saveConfig(config);
+            renderOptions();
+            showToast(`${svc.name}: flag set to "${currentValue}"`, 'success');
+          });
+
+          // Right-click an option to pick its own color via our themed
+          // color-picker modal (not the OS's native color picker window).
+          // Purely cosmetic for the dropdown text — it does not affect the
+          // card's running-state color.
+          item.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openColorPicker(opt.color || '#4ade80', async (color) => {
+              opt.color = color;
+              label.style.color = color;
+              if (opt.value === currentValue) {
+                btn.style.color = color;
+              }
+              const liveSvc = findService(svc.id) || svc;
+              const liveOpt = (liveSvc.flagOptions || []).find(o => o.value === opt.value);
+              if (liveOpt) liveOpt.color = color;
+              await window.api.saveConfig(config);
+              showToast(`${opt.label || opt.value}: color updated`, 'success');
+            });
+          });
+
+          menu.appendChild(item);
+        });
+      };
+
+      const selectedOpt = svc.flagOptions.find(o => o.value === currentValue) || svc.flagOptions[0];
+      btn.textContent = selectedOpt.label || selectedOpt.value;
+      renderOptions();
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.querySelectorAll('.flag-dropdown-menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+        const willOpen = !menu.classList.contains('open');
+        if (willOpen) positionMenu();
+        menu.classList.toggle('open');
       });
-      flagSelect.value = svc.flag || svc.flagOptions[0].value;
-      flagSelect.style.display = '';
-      flagSelect.addEventListener('click', (e) => e.stopPropagation());
-      flagSelect.addEventListener('change', async () => {
-        const liveSvc = findService(svc.id) || svc;
-        liveSvc.flag = flagSelect.value;
-        svc.flag = flagSelect.value;
-        await window.api.saveConfig(config);
-        showToast(`${svc.name}: flag set to "${flagSelect.value}"`, 'success');
+      document.addEventListener('click', (e) => {
+        if (!flagDropdown.contains(e.target) && !menu.contains(e.target)) closeMenu();
       });
+      window.addEventListener('scroll', closeMenu, true);
+      window.addEventListener('resize', closeMenu);
+
+      // Menu is positioned fixed to escape any card's local stacking
+      // context, so it must live at the document root, not nested inside
+      // the card (otherwise cards/tabs rendered later can still paint over
+      // it despite a high z-index).
+      document.body.appendChild(menu);
+
+      flagDropdown.style.display = '';
     } else {
-      flagSelect.style.display = 'none';
+      flagDropdown.style.display = 'none';
     }
   }
 
@@ -714,15 +1072,29 @@ function createServiceCard(svc, cat) {
 
   // Restart button
   restartBtn.addEventListener('click', async () => {
+    // Defense in depth against spam-clicks landing before the button is
+    // actually hidden (e.g. a click already queued by the browser before
+    // setCardLoading's display:none takes effect).
+    if (loadingServices.has(svc.id)) return;
     setCardLoading(root, svc.id, 'restart');
     showToast(`${svc.name} restarting...`, 'success');
-    await window.api.restartService(svc);
+    const res = await window.api.restartService(svc);
+    if (res && res.ok === false) {
+      loadingServices.delete(svc.id);
+      crashedServices.add(svc.id);
+      notifyServiceError(svc, 'failed to restart', res.error);
+      statuses = await window.api.checkAll();
+      updateStatusDots();
+      updateNavCounts();
+    }
   });
 
   // Track whether we're in "input mode" for requiresInput services
   let inputMode = false;
 
   toggleBtn.addEventListener('click', async () => {
+    // Defense in depth against spam-clicks landing before the button is hidden.
+    if (loadingServices.has(svc.id)) return;
     const liveRunning = !!statuses[svc.id];
 
     if (liveRunning) {
@@ -755,12 +1127,19 @@ function createServiceCard(svc, cat) {
     inlineInput.style.display = 'none';
     setCardLoading(root, svc.id, 'start');
 
-    if (inputVal) {
-      await window.api.startService(svc, inputVal);
+    const res = inputVal
+      ? await window.api.startService(svc, inputVal)
+      : await window.api.startService(svc);
+    if (res && res.ok === false) {
+      loadingServices.delete(svc.id);
+      crashedServices.add(svc.id);
+      notifyServiceError(svc, 'failed to start', res.error);
+      statuses = await window.api.checkAll();
+      updateStatusDots();
+      updateNavCounts();
     } else {
-      await window.api.startService(svc);
+      showToast(`${svc.name} starting...`, 'success');
     }
-    showToast(`${svc.name} starting...`, 'success');
   });
 
   // Enter key submits for requiresInput services
@@ -775,13 +1154,201 @@ function createServiceCard(svc, cat) {
   return card;
 }
 
+// ── Build Card ──
+// A "build" is a one-shot compile/package command (e.g. `mvn clean install`)
+// rather than a persistent process, so it reuses the service card template
+// but with a single "Run" action instead of a Start/Stop toggle. Its dot
+// color reflects the outcome of the LAST run (idle/gray, running/spinner,
+// success/green, failed/red via the existing crashedServices set) instead of
+// a polled "is it up" status.
+function createBuildCard(svc, cat) {
+  const tmpl = document.getElementById('tmpl-service-card');
+  const card = tmpl.content.cloneNode(true);
+  const root = card.querySelector('.service-card');
+  root.classList.add('build-card');
+  root.draggable = true;
+  root.dataset.serviceId = svc.id;
+
+  const isBuilding = loadingServices.has(svc.id);
+  const isFailed = !isBuilding && crashedServices.has(svc.id);
+  root.classList.add(isFailed ? 'crashed' : 'stopped');
+  applyRunningColor(root, svc);
+
+  const dot = card.querySelector('.status-dot');
+  dot.classList.add(isFailed ? 'crashed' : 'stopped');
+
+  card.querySelector('.service-name').textContent = svc.name;
+  card.querySelector('.service-desc').textContent = svc.description;
+
+  // Copy the full build command (with working dir prefix) to clipboard.
+  const copyBtn = card.querySelector('.copy-cmd-btn');
+  if (copyBtn && svc.buildCommand) {
+    copyBtn.style.display = '';
+    copyBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const cmd = svc.workingDir ? `cd "${svc.workingDir}" && ${svc.buildCommand}` : svc.buildCommand;
+      await window.api.copyText(cmd);
+      showToast(`Copied ${svc.name} command`, 'info');
+    });
+  }
+
+  // Click card info area to open the build's log viewer.
+  const infoEl = card.querySelector('.card-info');
+  infoEl.style.cursor = 'pointer';
+  infoEl.addEventListener('click', () => openLogViewer(svc));
+
+  // Flag/uptime/restart controls don't apply to builds — hide them.
+  const flagDropdown = card.querySelector('.flag-dropdown');
+  if (flagDropdown) flagDropdown.style.display = 'none';
+  const restartBtn = card.querySelector('.restart-btn');
+  if (restartBtn) restartBtn.style.display = 'none';
+
+  // Repurpose the "uptime" slot to show when this build was last run
+  // successfully (EST, date + hour:minute) instead of a running duration.
+  const lastBuiltEl = card.querySelector('.uptime');
+  const renderLastBuilt = () => {
+    if (!lastBuiltEl) return;
+    if (svc.lastBuiltAt) {
+      const d = new Date(svc.lastBuiltAt);
+      const formatted = d.toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+      lastBuiltEl.textContent = `Last built: ${formatted} ET`;
+      lastBuiltEl.title = d.toString();
+    } else {
+      lastBuiltEl.textContent = 'Never built';
+      lastBuiltEl.title = '';
+    }
+    lastBuiltEl.style.display = '';
+  };
+  renderLastBuilt();
+
+  const toggleBtn = card.querySelector('.toggle-btn');
+  const cancelBtn = card.querySelector('.cancel-btn');
+  const editBtn = card.querySelector('.edit-svc-btn');
+
+  toggleBtn.textContent = 'Run';
+  toggleBtn.classList.add('start');
+
+  if (isBuilding) {
+    setCardLoading(root, svc.id, 'start');
+  }
+
+  editBtn.addEventListener('click', () => showBuildForm(cat, svc));
+
+  cancelBtn.addEventListener('click', async () => {
+    await window.api.cancelBuild(svc);
+    loadingServices.delete(svc.id);
+    crashedServices.add(svc.id);
+    showToast(`${svc.name} build cancelled`, 'error');
+    refreshCurrentView();
+  });
+
+  toggleBtn.addEventListener('click', async () => {
+    if (loadingServices.has(svc.id)) return;
+    crashedServices.delete(svc.id);
+    setCardLoading(root, svc.id, 'start');
+    showToast(`${svc.name} building...`, 'success');
+    const res = await window.api.runBuild(svc);
+    loadingServices.delete(svc.id);
+    if (res && res.ok === false) {
+      if (!res.cancelled) {
+        crashedServices.add(svc.id);
+        notifyServiceError(svc, 'build failed', res.error);
+      }
+    } else {
+      showToast(`${svc.name} build succeeded`, 'success');
+      svc.lastBuiltAt = Date.now();
+      const liveSvc = findService(svc.id) || svc;
+      liveSvc.lastBuiltAt = svc.lastBuiltAt;
+      await window.api.saveConfig(config);
+      renderLastBuilt();
+    }
+    refreshCurrentView();
+  });
+
+  return card;
+}
+
+// Resolve loading states for ALL tracked services based on real status/timeout,
+// independent of whether their card is currently on screen. This ensures a
+// shortcut's spinner clears even when a linked service lives on another view.
+function resolveLoadingStates() {
+  const timeoutSec = config.settings?.startTimeout ?? 90;
+  for (const [id, info] of loadingServices) {
+    const isRunning = !!statuses[id];
+    const statusChanged = (info.action === 'start' && isRunning) ||
+                          (info.action === 'stop' && !isRunning) ||
+                          (info.action === 'restart' && isRunning);
+    const timedOut = timeoutSec > 0 && (Date.now() - info.startedAt > timeoutSec * 1000);
+    if (statusChanged) {
+      loadingServices.delete(id);
+    } else if (timedOut) {
+      loadingServices.delete(id);
+      // A start/restart that never came up within the timeout is a failure —
+      // flag it and alert (unless the user already stopped it).
+      if ((info.action === 'start' || info.action === 'restart') && !isRunning) {
+        const svc = findService(id);
+        if (svc && !crashedServices.has(id)) {
+          crashedServices.add(id);
+          window.api.getServiceLogs(id, 20)
+            .then(log => notifyServiceError(svc, `didn't start within ${timeoutSec}s`, extractErrorLine(log)))
+            .catch(() => notifyServiceError(svc, `didn't start within ${timeoutSec}s`, ''));
+        }
+      }
+    }
+  }
+}
+
+// A compact fingerprint of a shortcut's visible state (loading + each linked
+// service's on/off). Stored on the card so we only rebuild it when it changes.
+function shortcutSignature(shortcut) {
+  const linked = (shortcut.linkedServiceIds || []).map(x => findService(x)).filter(Boolean);
+  const anyLoading = linked.some(s => loadingServices.has(s.id));
+  return (anyLoading ? 'L|' : '|') + linked.map(s => `${s.id}:${statuses[s.id] ? 1 : 0}`).join(',');
+}
+
+// Keep a shortcut card in sync with its linked services. While any linked
+// service is still loading we leave the existing spinner in place; once they
+// settle we rebuild the card so counts, tags, button label and the (fresh)
+// click handler all reflect the new state.
+function syncShortcutCard(card) {
+  const id = card.dataset.serviceId;
+  const shortcut = findService(id);
+  if (!shortcut) return;
+  const sig = shortcutSignature(shortcut);
+  if (card.dataset.shortcutSig === sig) return;
+  card.dataset.shortcutSig = sig;
+
+  const linked = (shortcut.linkedServiceIds || []).map(x => findService(x)).filter(Boolean);
+  const anyLoading = linked.some(s => loadingServices.has(s.id));
+  if (anyLoading) return; // keep the spinner until linked services settle
+
+  const cat = config.categories.find(c => c.services.some(s => s.id === id));
+  const fresh = createShortcutCard(shortcut, cat);
+  card.replaceWith(fresh);
+}
+
 function updateStatusDots() {
   document.querySelectorAll('.service-card').forEach(card => {
     const id = card.dataset.serviceId;
     if (!id) return;
 
-    // Skip shortcut cards — they get fully re-rendered on refresh
-    if (card.classList.contains('shortcut-card')) return;
+    // Shortcut cards aggregate their linked services; sync them here so their
+    // spinner/label clears once the linked services settle (they used to be
+    // skipped entirely, leaving the spinner stuck after Start/Stop All).
+    if (card.classList.contains('shortcut-card')) {
+      syncShortcutCard(card);
+      return;
+    }
+
+    // Build cards manage their own dot/button state directly around the
+    // run promise — they have no persistent "running" status to poll for.
+    if (card.classList.contains('build-card')) return;
 
     const isRunning = statuses[id];
 
@@ -803,11 +1370,11 @@ function updateStatusDots() {
       loadingServices.delete(id);
     }
 
-    card.className = `service-card ${isRunning ? 'running' : 'stopped'}`;
+    card.className = `service-card ${isRunning ? 'running' : (crashedServices.has(id) ? 'crashed' : 'stopped')}`;
     const svcForColor = findService(id);
     if (svcForColor) applyRunningColor(card, svcForColor);
     const dot = card.querySelector('.status-dot');
-    if (dot) dot.className = `status-dot ${isRunning ? 'running' : 'stopped'}`;
+    if (dot) dot.className = `status-dot ${isRunning ? 'running' : (crashedServices.has(id) ? 'crashed' : 'stopped')}`;
 
     const btn = card.querySelector('.toggle-btn');
     if (btn) {
@@ -841,7 +1408,7 @@ function updateStatusDots() {
     if (cat) {
       const countEl = document.querySelector('.category-count');
       if (countEl) {
-        const realSvcs = cat.services.filter(s => s.type !== 'shortcut');
+        const realSvcs = cat.services.filter(s => s.type !== 'shortcut' && s.type !== 'build');
         const running = realSvcs.filter(s => statuses[s.id]).length;
         countEl.textContent = `${running}/${realSvcs.length} running`;
       }
@@ -879,6 +1446,10 @@ function createShortcutCard(shortcut, cat) {
   const someRunning = runningCount > 0;
 
   root.classList.add(allRunning ? 'running' : 'stopped');
+  applyRunningColor(root, shortcut);
+
+  const iconEl = card.querySelector('.shortcut-icon');
+  if (iconEl) iconEl.textContent = shortcut.icon || '⚡';
 
   card.querySelector('.service-name').textContent = shortcut.name;
   card.querySelector('.shortcut-status').textContent =
@@ -912,7 +1483,10 @@ function createShortcutCard(shortcut, cat) {
 
   editBtn.addEventListener('click', () => showShortcutForm(cat, shortcut));
 
+  root.dataset.shortcutSig = shortcutSignature(shortcut);
+
   toggleBtn.addEventListener('click', async () => {
+    if (toggleBtn.style.display === 'none') return; // already in progress
     toggleBtn.style.display = 'none';
     addLoadingDots(root);
     if (someRunning) {
@@ -925,6 +1499,7 @@ function createShortcutCard(shortcut, cat) {
       showToast(`${shortcut.name} — stopping services`, 'success');
     } else {
       const skipped = [];
+      const failed = [];
       for (const svc of linked) {
         if (statuses[svc.id]) continue;
         if (svc.requiresInput) {
@@ -932,10 +1507,19 @@ function createShortcutCard(shortcut, cat) {
           continue;
         }
         loadingServices.set(svc.id, { action: 'start', prevStatus: false, startedAt: Date.now() });
-        await window.api.startService(svc);
+        crashedServices.delete(svc.id);
+        const res = await window.api.startService(svc);
+        if (res && res.ok === false) {
+          loadingServices.delete(svc.id);
+          crashedServices.add(svc.id);
+          failed.push(svc.name);
+          notifyServiceError(svc, 'failed to start', res.error);
+        }
       }
       if (skipped.length > 0) {
         showToast(`${skipped.join(', ')} need manual input — start separately`, 'error');
+      } else if (failed.length > 0) {
+        showToast(`${shortcut.name} — ${failed.join(', ')} failed to start`, 'error');
       } else {
         showToast(`${shortcut.name} — starting services`, 'success');
       }
@@ -956,8 +1540,32 @@ function showShortcutForm(cat, existing) {
   if (existing) {
     root.querySelector('.shortcut-name').value = existing.name;
     root.querySelector('.shortcut-desc').value = existing.description || '';
+    root.querySelector('.shortcut-running-color').value = existing.runningColor || '#4ade80';
     root.querySelector('.btn-delete').style.display = 'block';
   }
+
+  // Running-color reset button
+  const colorInput = root.querySelector('.shortcut-running-color');
+  root.querySelector('.btn-reset-color').addEventListener('click', () => {
+    colorInput.value = '#4ade80';
+  });
+
+  // Icon picker — a small curated set of shortcut-related emojis (no custom input)
+  const PRESET_ICONS = ['⚡', '🚀', '🔥', '🎯', '🧩', '🛠️', '📦', '🌐', '🖥️', '🗄️', '▶️', '🔗'];
+  let selectedIcon = existing?.icon || '⚡';
+  const iconRow = root.querySelector('.emoji-preset-row');
+  PRESET_ICONS.forEach(em => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'emoji-preset' + (em === selectedIcon ? ' active' : '');
+    b.textContent = em;
+    b.addEventListener('click', () => {
+      selectedIcon = em;
+      iconRow.querySelectorAll('.emoji-preset').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+    iconRow.appendChild(b);
+  });
 
   // Build service checklist grouped by category
   const listEl = root.querySelector('.shortcut-service-list');
@@ -987,7 +1595,7 @@ function showShortcutForm(cat, existing) {
   });
 
   config.categories.forEach(c => {
-    const realServices = c.services.filter(s => s.type !== 'shortcut');
+    const realServices = c.services.filter(s => s.type !== 'shortcut' && s.type !== 'build');
     if (realServices.length === 0) return;
 
     const label = document.createElement('div');
@@ -1027,7 +1635,9 @@ function showShortcutForm(cat, existing) {
       type: 'shortcut',
       name,
       description: desc,
-      linkedServiceIds: checkedIds
+      icon: selectedIcon,
+      linkedServiceIds: checkedIds,
+      runningColor: root.querySelector('.shortcut-running-color').value || undefined
     };
 
     if (existing) {
@@ -1447,6 +2057,77 @@ function showServiceForm(cat, existingSvc) {
   content.appendChild(form);
 }
 
+// ── Build Form ──
+function showBuildForm(cat, existing) {
+  const tmpl = document.getElementById('tmpl-build-form');
+  const form = tmpl.content.cloneNode(true);
+  const root = form.querySelector('.command-form');
+
+  if (existing) {
+    root.querySelector('.build-name').value = existing.name;
+    root.querySelector('.build-desc').value = existing.description || '';
+    root.querySelector('.build-dir').value = existing.workingDir || '';
+    root.querySelector('.build-command').value = existing.buildCommand || '';
+    root.querySelector('.build-running-color').value = existing.runningColor || '#4ade80';
+    root.querySelector('.btn-delete').style.display = 'block';
+  }
+
+  const colorInput = root.querySelector('.build-running-color');
+  root.querySelector('.btn-reset-color').addEventListener('click', () => {
+    colorInput.value = '#4ade80';
+  });
+
+  root.querySelector('.btn-save').addEventListener('click', async () => {
+    const name = root.querySelector('.build-name').value.trim();
+    const desc = root.querySelector('.build-desc').value.trim();
+    const workingDir = root.querySelector('.build-dir').value.trim();
+    const buildCommand = root.querySelector('.build-command').value.trim();
+
+    if (!name) { showToast('Name is required', 'error'); return; }
+    if (!buildCommand) { showToast('Build command is required', 'error'); return; }
+
+    const runningColorRaw = root.querySelector('.build-running-color').value;
+    const runningColor = (runningColorRaw && runningColorRaw.toLowerCase() !== '#4ade80') ? runningColorRaw : undefined;
+
+    const svc = {
+      id: existing?.id || name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
+      type: 'build',
+      name,
+      description: desc,
+      workingDir: workingDir || undefined,
+      buildCommand,
+      runningColor
+    };
+
+    if (existing) {
+      const idx = cat.services.findIndex(s => s.id === existing.id);
+      if (idx >= 0) cat.services[idx] = svc;
+    } else {
+      cat.services.push(svc);
+    }
+
+    await window.api.saveConfig(config);
+    renderSidebar();
+    navigateTo(cat.id);
+    showToast(existing ? 'Build updated' : 'Build added', 'success');
+  });
+
+  root.querySelector('.btn-cancel').addEventListener('click', () => navigateTo(cat.id));
+
+  root.querySelector('.btn-delete').addEventListener('click', async () => {
+    if (!confirm(`Delete "${existing.name}"?`)) return;
+    cat.services = cat.services.filter(s => s.id !== existing.id);
+    await window.api.saveConfig(config);
+    renderSidebar();
+    navigateTo(cat.id);
+    showToast('Build deleted', 'success');
+  });
+
+  const content = document.getElementById('content');
+  content.innerHTML = '';
+  content.appendChild(form);
+}
+
 // ── Toast ──
 function showToast(msg, type = 'success') {
   const existing = document.querySelector('.toast');
@@ -1468,6 +2149,100 @@ function showToast(msg, type = 'success') {
 // ── Log Viewer ──
 let logInterval = null;
 let currentLogServiceId = null;
+
+// Strip ANSI escape/color codes (e.g. from mvn/npm colored output) — left
+// unstripped these render as garbled control-character junk in plain text.
+function stripAnsi(text) {
+  return (text || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '');
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Renders raw log text as syntax-highlighted HTML: our own "── … ──" run
+// markers, error/warn keywords, and success markers each get a distinct
+// color so a run's outcome is scannable at a glance instead of a wall of
+// uniform gray text.
+function renderLogHTML(rawText) {
+  const text = stripAnsi(rawText);
+  const lines = text.split('\n');
+  return lines.map(line => {
+    const escaped = escapeHtml(line);
+    if (/^── .*(Starting|Stopping|Building) .* ──$/.test(line)) {
+      return `<span class="log-line log-marker-start">${escaped}</span>`;
+    }
+    if (/^── .*(FAILED|error|Error).* ──$/.test(line) || /^── .*cancelled.* ──$/i.test(line)) {
+      return `<span class="log-line log-marker-fail">${escaped}</span>`;
+    }
+    if (/^── .*(succeeded|completed|signaled completion).* ──$/i.test(line)) {
+      return `<span class="log-line log-marker-ok">${escaped}</span>`;
+    }
+    if (/^──.*──$/.test(line)) {
+      return `<span class="log-line log-marker">${escaped}</span>`;
+    }
+    if (/\b(error|exception|fail(ed|ure)?|cannot|unable|denied|refused)\b/i.test(line)) {
+      return `<span class="log-line log-error">${escaped}</span>`;
+    }
+    if (/\b(warn(ing)?)\b/i.test(line)) {
+      return `<span class="log-line log-warn">${escaped}</span>`;
+    }
+    if (/\b(BUILD SUCCESS|success|started successfully|listening on|running on)\b/i.test(line)) {
+      return `<span class="log-line log-success">${escaped}</span>`;
+    }
+    return `<span class="log-line">${escaped}</span>`;
+  }).join('\n');
+}
+
+// Condense a raw service log into a short, low-token summary suitable for
+// pasting into an AI chat: strips ANSI colors, collapses runs of identical
+// lines, keeps only the most recent start/stop attempt (older runs are noise
+// for debugging "what's wrong right now"), and caps the size.
+function condenseLogsForAI(rawLogs, svcName) {
+  if (!rawLogs || !rawLogs.trim()) return `${svcName}: no logs available.`;
+
+  // Strip ANSI escape codes.
+  let text = rawLogs.replace(/\x1b\[[0-9;]*m/g, '');
+
+  // Keep only from the last "── [timestamp] Starting/Stopping" marker onward
+  // — that's the run the user actually cares about right now.
+  const markerRegex = /^── \[.*?\] (Starting|Stopping) /gm;
+  let lastMarkerIndex = -1;
+  let match;
+  while ((match = markerRegex.exec(text)) !== null) lastMarkerIndex = match.index;
+  if (lastMarkerIndex > -1) text = text.slice(lastMarkerIndex);
+
+  let lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Collapse consecutive duplicate lines (e.g. repeated retry/poll noise)
+  // into a single "line (xN)" entry.
+  const collapsed = [];
+  for (const line of lines) {
+    const last = collapsed[collapsed.length - 1];
+    if (last && last.text === line) {
+      last.count++;
+    } else {
+      collapsed.push({ text: line, count: 1 });
+    }
+  }
+  lines = collapsed.map(l => l.count > 1 ? `${l.text} (x${l.count})` : l.text);
+
+  // Cap length — keep the tail, since the most recent lines (and any final
+  // error) matter most, but always keep the very first "Starting/Stopping"
+  // marker line for context.
+  const MAX_LINES = 60;
+  let out = lines;
+  if (lines.length > MAX_LINES) {
+    out = [lines[0], '… (truncated) …', ...lines.slice(-1 * (MAX_LINES - 1))];
+  }
+
+  const MAX_CHARS = 4000;
+  let result = `${svcName} log (condensed):\n` + out.join('\n');
+  if (result.length > MAX_CHARS) {
+    result = result.slice(0, MAX_CHARS) + '\n… (truncated) …';
+  }
+  return result;
+}
 
 function openLogViewer(svc) {
   const overlay = document.getElementById('log-overlay');
@@ -1509,6 +2284,14 @@ function openLogViewer(svc) {
   overlay.querySelector('#log-clear').onclick = async () => {
     await window.api.clearServiceLogs(svc.id);
     contentEl.textContent = '  Logs cleared.';
+  };
+
+  // Copy For AI — condensed, low-token summary of the current run's logs.
+  overlay.querySelector('#log-copy-ai').onclick = async () => {
+    const logs = await window.api.getServiceLogs(svc.id);
+    const condensed = condenseLogsForAI(logs, svc.name);
+    await window.api.copyText(condensed);
+    showToast('Condensed logs copied for AI', 'success');
   };
 }
 

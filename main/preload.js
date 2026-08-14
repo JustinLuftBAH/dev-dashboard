@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   checkAll: () => ipcRenderer.invoke('check-all'),
   getUptimes: () => ipcRenderer.invoke('get-uptimes'),
   startService: (service, input) => ipcRenderer.invoke('start-service', service, input),
+  runBuild: (service) => ipcRenderer.invoke('run-build', service),
+  cancelBuild: (service) => ipcRenderer.invoke('cancel-build', service),
   stopService: (service) => ipcRenderer.invoke('stop-service', service),
   restartService: (service) => ipcRenderer.invoke('restart-service', service),
   stopAll: () => ipcRenderer.invoke('stop-all'),
@@ -18,5 +20,6 @@ contextBridge.exposeInMainWorld('api', {
   resetConfig: () => ipcRenderer.invoke('reset-config'),
   getServiceLogs: (serviceId, maxLines) => ipcRenderer.invoke('get-service-logs', serviceId, maxLines),
   clearServiceLogs: (serviceId) => ipcRenderer.invoke('clear-service-logs', serviceId),
+  notify: (title, body) => ipcRenderer.invoke('notify', title, body),
   reloadApp: () => ipcRenderer.invoke('reload-app')
 });

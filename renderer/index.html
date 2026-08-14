@@ -54,6 +54,7 @@
         <button class="btn-add-item">+ Add</button>
         <div class="add-menu" style="display:none">
           <button class="add-menu-opt" data-type="service">🔧 Service</button>
+          <button class="add-menu-opt" data-type="build">🔨 Build</button>
           <button class="add-menu-opt" data-type="shortcut">⚡ Shortcut</button>
         </div>
       </div>
@@ -74,7 +75,10 @@
         <div class="card-actions">
           <span class="uptime" title="Running time (hours:minutes)" style="display:none"></span>
           <input type="text" class="inline-input" style="display:none" placeholder="">
-          <select class="flag-select" style="display:none" title="Flag / profile"></select>
+          <div class="flag-dropdown" style="display:none" title="Flag / profile">
+            <button type="button" class="flag-dropdown-btn"></button>
+            <div class="flag-dropdown-menu"></div>
+          </div>
           <button class="edit-svc-btn" title="Edit service">✎</button>
           <button class="restart-btn" title="Restart" style="display:none">↻</button>
           <button class="cancel-btn" title="Cancel" style="display:none">✕</button>
@@ -270,6 +274,39 @@
     </div>
   </template>
 
+  <template id="tmpl-build-form">
+    <div class="command-form">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" class="build-name" placeholder="My Java Project">
+      </div>
+      <div class="form-row">
+        <label>Description</label>
+        <input type="text" class="build-desc" placeholder="Builds the project jar">
+      </div>
+      <div class="form-row">
+        <label>Working Directory <span class="optional">(optional — folder the build command runs in)</span></label>
+        <input type="text" class="build-dir" placeholder="~/Repositories/rona-repos/bip-ronab-api">
+      </div>
+      <div class="form-row">
+        <label>Build Command</label>
+        <textarea class="build-command" placeholder="mvn clean install -Dspring.config.name=bip-ronab-api-local-orcl -DskipTests" rows="2"></textarea>
+      </div>
+      <div class="form-row">
+        <label>Running color <span class="optional">(shown while the build is in progress)</span></label>
+        <div class="color-row">
+          <input type="color" class="build-running-color" value="#4ade80">
+          <button type="button" class="btn-reset-color">Reset to default</button>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-save">Save</button>
+        <button class="btn-cancel">Cancel</button>
+        <button class="btn-delete" style="display:none">Delete</button>
+      </div>
+    </div>
+  </template>
+
   <template id="tmpl-shortcut-card">
     <div class="service-card shortcut-card">
       <div class="card-header">
@@ -298,8 +335,19 @@
         <input type="text" class="shortcut-desc" placeholder="Starts all frontend services">
       </div>
       <div class="form-row">
+        <label>Icon</label>
+        <div class="emoji-preset-row"></div>
+      </div>
+      <div class="form-row">
         <label>Services to include</label>
         <div class="shortcut-service-list"></div>
+      </div>
+      <div class="form-row">
+        <label>Color <span class="optional">(accent color for this shortcut)</span></label>
+        <div class="color-row">
+          <input type="color" class="shortcut-running-color" value="#4ade80">
+          <button type="button" class="btn-reset-color">Reset to default</button>
+        </div>
       </div>
       <div class="form-actions">
         <button class="btn-save">Save</button>
@@ -320,6 +368,7 @@
           <span class="log-service-name"></span>
         </div>
         <div class="log-actions">
+          <button class="log-btn" id="log-copy-ai" title="Copy a condensed, low-token summary for pasting to an AI assistant">COPY FOR AI</button>
           <button class="log-btn" id="log-clear" title="Clear logs">CLEAR</button>
           <button class="log-btn" id="log-close" title="Close">✕</button>
         </div>

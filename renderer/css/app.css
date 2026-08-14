@@ -2,6 +2,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  color-scheme: dark;
   --bg: #08071a;
   --bg-deep: #050510;
   --bg-card: #0e0d24;
@@ -308,6 +309,10 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 .service-card:hover { border-color: var(--border-accent); }
 .service-card.running { border-left: 2px solid var(--run-color, var(--green)); }
 .service-card.stopped { border-left: 2px solid var(--text-dark); }
+.service-card.crashed {
+  border-left: 2px solid var(--red);
+  background: var(--red-dim);
+}
 
 /* Drag & drop */
 .service-card[draggable="true"] { cursor: grab; }
@@ -316,10 +321,23 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 .service-card.drag-over {
   position: relative;
 }
+.service-card.drag-over-after {
+  position: relative;
+}
 .service-card.drag-over::before {
   content: '';
   position: absolute;
   left: 0; right: 0; top: -3px;
+  height: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  border-radius: 2px;
+  z-index: 5;
+}
+.service-card.drag-over-after::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -3px;
   height: 3px;
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
@@ -333,10 +351,22 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 .nav-btn.drag-over {
   position: relative;
 }
+.nav-btn.drag-over-after {
+  position: relative;
+}
 .nav-btn.drag-over::before {
   content: '';
   position: absolute;
   left: 0; right: 0; top: -1px;
+  height: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  z-index: 5;
+}
+.nav-btn.drag-over-after::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
   height: 3px;
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
@@ -362,6 +392,12 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 }
 
 .status-dot.stopped { background: var(--text-dark); }
+
+.status-dot.crashed {
+  background: var(--red);
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.7);
+  animation: pulse 1.2s infinite;
+}
 
 .status-dot.loading {
   background: var(--yellow);
@@ -400,7 +436,7 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   line-height: 1;
 }
 
-.edit-svc-btn:hover { border-color: var(--border); color: var(--purple); }
+.edit-svc-btn:hover { border-color: var(--purple); color: var(--purple); background: rgba(167, 139, 250, 0.14); }
 
 .restart-btn {
   padding: 3px 6px;
@@ -579,9 +615,15 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 }
 .btn-add-link:hover { border-color: var(--purple); }
 
-/* Flag-toggle dropdown on cards — matches .toggle-btn / .inline-input styling */
-.flag-select {
-  padding: 5px 8px;
+/* Flag-toggle dropdown on cards — matches .toggle-btn / .inline-input styling.
+   Fully custom (not a native <select>) so it can be completely themed —
+   macOS renders native <select> popups with the OS's own menu chrome, which
+   CSS can't restyle. */
+.flag-dropdown {
+  position: relative;
+}
+.flag-dropdown-btn {
+  padding: 5px 22px 5px 8px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--text);
@@ -593,15 +635,157 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   cursor: pointer;
   transition: all 0.15s;
   max-width: 160px;
-  -webkit-appearance: none;
-  appearance: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path fill='%237a74a8' d='M0 2l4 4 4-4z'/></svg>");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  padding-right: 22px;
+  border-radius: 0;
 }
-.flag-select:hover { border-color: var(--text-dim); color: var(--text); }
-.flag-select:focus { border-color: var(--purple); }
+.flag-dropdown-btn:hover { border-color: var(--text-dim); color: var(--text); }
+.flag-dropdown-btn:focus { border-color: var(--purple); }
+
+.flag-dropdown-menu {
+  display: none;
+  position: fixed;
+  min-width: 140px;
+  width: max-content;
+  max-width: 240px;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  padding: 4px 0;
+}
+.flag-dropdown-menu.open { display: block; }
+
+.flag-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.flag-dropdown-item:hover { background: var(--bg-hover); }
+.flag-dropdown-item.selected { color: var(--text); }
+
+.flag-dropdown-label { flex: 1; }
+
+.flag-dropdown-check {
+  color: var(--green);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* ── Custom color picker modal (used for flag-option colors) — a themed,
+   centered replacement for the OS's native color-picker window so it matches
+   the rest of the app instead of macOS chrome. ── */
+#color-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.color-picker-panel {
+  width: 260px;
+  background: #0a0918;
+  border: 1px solid var(--border-accent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  animation: slideUp 0.2s ease-out;
+}
+
+.color-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.color-picker-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+
+.color-picker-close {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+.color-picker-close:hover { border-color: var(--red); color: var(--red); }
+
+.color-picker-body {
+  padding: 16px 14px;
+}
+
+.color-picker-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.color-picker-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.1s;
+}
+.color-picker-swatch:hover { transform: scale(1.12); }
+.color-picker-swatch.selected { border-color: var(--text); }
+
+.color-picker-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.color-picker-custom-row label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  flex: 1;
+}
+
+.color-picker-custom-row input[type="color"] {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  cursor: pointer;
+}
 
 /* Flag-options editor (service form) */
 .cmd-flag-row {
@@ -908,7 +1092,7 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   transition: all 0.15s;
 }
 
-.btn-edit-cat:hover { border-color: var(--purple); color: var(--purple); }
+.btn-edit-cat:hover { border-color: var(--purple); color: var(--purple); background: rgba(167, 139, 250, 0.14); }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 4px; }
@@ -1013,13 +1197,26 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 .add-menu-opt + .add-menu-opt { border-top: 1px solid var(--border-light); }
 
 /* ── Shortcut Card ── */
-.shortcut-card { border-left: 2px solid var(--gold) !important; }
+/* Stopped cards use the same neutral border as the service cards; the picked
+   color only appears while the shortcut is running (all linked services on). */
+.shortcut-card.stopped { border-left: 2px solid var(--text-dark) !important; }
+.shortcut-card.running { border-left: 2px solid var(--run-color, var(--gold)) !important; }
 
 .shortcut-icon {
-  font-size: 16px;
-  width: 24px;
-  text-align: center;
+  font-size: 13px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
   flex-shrink: 0;
+  /* No hue when stopped; the colored halo/glow only appears while running. */
+  background: transparent;
+}
+.shortcut-card.running .shortcut-icon {
+  background: color-mix(in srgb, var(--run-color, var(--gold)) 20%, transparent);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--run-color, var(--gold)) 45%, transparent);
 }
 
 .shortcut-status { font-size: 11px !important; }
@@ -1436,6 +1633,59 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: pointer;
 }
 .btn-reset-color:hover { border-color: var(--purple); color: var(--purple); }
+
+/* Emoji preset picker (shortcut icon) */
+.emoji-preset-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.emoji-preset {
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.emoji-preset:hover { border-color: var(--purple); background: rgba(167, 139, 250, 0.14); }
+.emoji-preset.active { border-color: var(--purple); background: rgba(167, 139, 250, 0.28); }
+
+/* Right-click category context menu */
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 150px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.context-menu-item {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 0;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.context-menu-item:hover { background: var(--purple-dim); color: var(--purple); }
+
+/* Keep a right-clicked (non-selected) category highlighted while its menu is open */
+.nav-btn.context-active:not(.active) {
+  color: var(--text);
+  background: var(--bg-hover);
+  border-left-color: var(--border);
+}
+
+
 .theme-swatch, .bg-swatch, .text-swatch {
   width: 20px; height: 20px;
   border: 2px solid transparent;

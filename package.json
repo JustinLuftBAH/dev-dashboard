@@ -1,5 +1,6 @@
 {
   "name": "dev-dashboard",
+  "productName": "Dashboard",
   "version": "1.0.0",
   "description": "GUI dashboard for managing dev services",
   "main": "main/main.js",
