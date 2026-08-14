@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Logs</title>
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    html, body { height: 100%; margin: 0; background: #06051a; }
+    body { display: flex; flex-direction: column; }
+    #win-log-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+      -webkit-app-region: drag;
+    }
+    #win-log-header button { -webkit-app-region: no-drag; }
+    .win-log-title { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text); }
+    .win-log-timestamp { font-family: var(--mono); font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; }
+    #win-log-content {
+      flex: 1; overflow-y: auto; padding: 16px; margin: 0;
+      font-family: var(--mono); font-size: 11px; line-height: 1.6;
+      color: var(--text-dim);
+      background: #06051a; border: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="win-log-header">
+    <div class="win-log-title">
+      <span class="log-dot" id="win-log-dot"></span>
+      <span id="win-log-name"></span>
+    </div>
+    <div class="log-actions">
+      <span class="win-log-timestamp" id="win-log-timestamp"></span>
+      <button class="log-btn" id="win-log-clear" title="Clear logs">CLEAR</button>
+    </div>
+  </div>
+  <pre id="win-log-content"></pre>
+  <script src="js/log-colorize.js"></script>
+  <script src="js/log-window.js"></script>
+</body>
+</html>

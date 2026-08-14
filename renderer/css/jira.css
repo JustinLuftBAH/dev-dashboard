@@ -1,0 +1,342 @@
+/* ── Jira Tickets — minimalist cyberpunk styling ──
+ * Kept as its own stylesheet so the Jira feature's styling stays modular
+ * alongside its JS (renderer/js/jira-tickets.js, jira-settings.js).
+ * No rounded corners anywhere — matches the app's sharp, terminal/HUD look.
+ */
+
+.tickets-view {
+  padding: 32px;
+  max-width: 1100px;
+}
+
+.tickets-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.tickets-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tickets-header-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.tickets-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#tickets-meta {
+  margin-bottom: 16px;
+  font-family: var(--mono);
+  letter-spacing: 0.3px;
+}
+
+/* ── Toolbar (search / filter / sort) — filter & sort controls reuse the
+   app's custom flag-dropdown component instead of native <select>, so they
+   stay fully square and themed instead of falling back to OS menu chrome. ── */
+.tickets-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.ticket-search {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  padding: 7px 10px;
+  outline: none;
+  border-radius: 0;
+  transition: border-color 0.15s;
+}
+.ticket-search:focus { border-color: var(--purple); }
+.ticket-search::placeholder { color: var(--text-dark); }
+
+.tickets-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Custom themed dropdown for status/priority/sort — same visual language as
+   the service-card flag dropdown (renderer/css/app.css .flag-dropdown-*),
+   duplicated here (rather than shared) since it's positioned inline
+   (absolute) instead of portaled to <body>. */
+.jira-select {
+  position: relative;
+}
+.jira-select-btn {
+  padding: 6px 24px 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  border-radius: 0;
+  white-space: nowrap;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path fill='%237a74a8' d='M0 2l4 4 4-4z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.jira-select-btn:hover { border-color: var(--text-dim); }
+.jira-select-btn:focus { border-color: var(--purple); }
+
+.jira-select-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 260px;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  padding: 4px 0;
+  border-radius: 0;
+}
+.jira-select-menu.open { display: block; }
+
+.jira-select-item {
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.jira-select-item:hover { background: var(--bg-hover); }
+.jira-select-item.selected { color: var(--purple); }
+
+/* ── Table ── */
+.tickets-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tickets-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tickets-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.tickets-table tbody tr {
+  transition: background 0.12s ease;
+}
+
+.tickets-table tbody tr:hover {
+  background: var(--purple-dim);
+}
+
+.ticket-summary { max-width: 420px; }
+
+.ticket-sprint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.ticket-updated {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.ticket-key {
+  color: var(--accent);
+  font-family: var(--mono);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.ticket-key:hover { text-decoration: underline; }
+
+/* ── Status / priority chips — solid, high-contrast, square corners
+   (like a HUD tag), not soft rounded pills. ── */
+.status-badge,
+.priority-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.75px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.status-badge-btn {
+  cursor: pointer;
+  transition: filter 0.1s, transform 0.1s;
+}
+.status-badge-btn:hover { filter: brightness(1.15); }
+.status-badge-btn:active { transform: translateY(1px); }
+
+/* Popup menu opened from a status badge, letting the user pick + submit a
+   new workflow status. Portaled to <body> and positioned absolutely under
+   the badge, matching the flag-dropdown / jira-select menu language. */
+.status-menu {
+  position: absolute;
+  z-index: 200;
+  min-width: 190px;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  border-radius: 0;
+}
+
+.status-menu-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.status-menu-option {
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  border-radius: 0;
+}
+.status-menu-option:hover { background: var(--bg-hover); color: var(--text); }
+.status-menu-option.selected {
+  border-color: var(--border-accent);
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.status-menu-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.status-menu-actions button {
+  width: auto;
+  flex: 1;
+  margin-top: 0;
+  padding: 7px 12px;
+  font-size: 10px;
+}
+
+.status-menu-cancel:hover { border-color: var(--red) !important; color: var(--red) !important; }
+.status-menu-submit:hover { border-color: var(--green) !important; color: var(--green) !important; }
+
+.status-badge--todo {
+  color: var(--bg-deep);
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.status-badge--inprogress {
+  color: var(--bg-deep);
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.status-badge--dev {
+  color: var(--bg-deep);
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.status-badge--review {
+  color: var(--bg-deep);
+  background: #d97706;
+  border-color: #d97706;
+}
+
+.status-badge--done {
+  color: var(--bg-deep);
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.status-badge--unknown {
+  color: var(--text-dim);
+  background: transparent;
+  border-color: var(--border);
+}
+
+.priority-badge--critical {
+  color: var(--bg-deep);
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.priority-badge--high {
+  color: var(--bg-deep);
+  background: #fb923c;
+  border-color: #fb923c;
+}
+
+.priority-badge--medium {
+  color: var(--bg-deep);
+  background: var(--yellow);
+  border-color: var(--yellow);
+}
+
+.priority-badge--low {
+  color: var(--bg-deep);
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.priority-badge--lowest,
+.priority-badge--none {
+  color: var(--text-dim);
+  background: transparent;
+  border-color: var(--border);
+}

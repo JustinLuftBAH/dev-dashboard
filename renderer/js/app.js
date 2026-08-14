@@ -71,6 +71,7 @@ async function init() {
   applyTextColor();
   statuses = await window.api.checkAll();
   uptimes = await window.api.getUptimes();
+  initCornerMenu();
   renderSidebar();
   if (config.categories.length > 0) {
     navigateTo(config.categories[0].id);
@@ -78,6 +79,52 @@ async function init() {
     navigateTo('settings');
   }
   startPolling();
+}
+
+// ── Corner "special functions" menu (opened via the Saturn icon) ──
+function initCornerMenu() {
+  const logo = document.getElementById('corner-logo');
+  const menu = document.getElementById('corner-menu');
+  let isOpen = false;
+
+  function openMenu() {
+    isOpen = true;
+    menu.classList.remove('closing');
+    menu.classList.add('open');
+    logo.classList.add('menu-open');
+  }
+
+  function closeMenu() {
+    if (!isOpen) return;
+    isOpen = false;
+    logo.classList.remove('menu-open');
+    menu.classList.remove('open');
+    menu.classList.add('closing');
+    setTimeout(() => menu.classList.remove('closing'), 130);
+  }
+
+  logo.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isOpen) closeMenu(); else openMenu();
+  });
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target) && e.target !== logo) closeMenu();
+  });
+
+  document.getElementById('btn-stop-all').addEventListener('click', async () => {
+    closeMenu();
+    if (!confirm('Stop all running services?')) return;
+    await window.api.stopAll();
+    statuses = await window.api.checkAll();
+    updateStatusDots();
+    updateNavCounts();
+    showToast('All services stopped', 'success');
+  });
+
+  document.getElementById('btn-reset-app').addEventListener('click', () => {
+    closeMenu();
+    window.api.reloadApp();
+  });
 }
 
 // ── Decorative starfield (independent random twinkling + repositioning) ──
@@ -238,6 +285,7 @@ function attachEmojiPicker(inputEl) {
   });
 }
 document.addEventListener('click', () => closeEmojiPicker());
+document.addEventListener('jira-enabled-changed', () => renderSidebar());
 
 // ── Category context menu (right-click a sidebar category) ──
 let _activeContextMenu = null;
@@ -513,22 +561,16 @@ function renderSidebar() {
   updateNavCounts();
 
   // Re-bind footer buttons (they persist, just re-attach listeners)
-  const stopBtn = document.getElementById('btn-stop-all');
   const settingsBtn = document.getElementById('btn-settings');
-  
-  stopBtn.replaceWith(stopBtn.cloneNode(true));
   settingsBtn.replaceWith(settingsBtn.cloneNode(true));
-  
-  document.getElementById('btn-stop-all').addEventListener('click', async () => {
-    if (!confirm('Stop all running services?')) return;
-    await window.api.stopAll();
-    statuses = await window.api.checkAll();
-    updateStatusDots();
-    updateNavCounts();
-    showToast('All services stopped', 'success');
-  });
 
   document.getElementById('btn-settings').addEventListener('click', () => navigateTo('settings'));
+
+  const ticketsBtn = document.getElementById('btn-tickets');
+  ticketsBtn.replaceWith(ticketsBtn.cloneNode(true));
+  const newTicketsBtn = document.getElementById('btn-tickets');
+  newTicketsBtn.style.display = config.settings?.jira?.enabled === false ? 'none' : '';
+  newTicketsBtn.addEventListener('click', () => navigateTo('tickets'));
 
   // Add Category button in sidebar
   const addCatBtn = document.getElementById('btn-add-category');
@@ -563,9 +605,13 @@ function navigateTo(viewId) {
 
   const settingsBtn = document.getElementById('btn-settings');
   settingsBtn.classList.toggle('active', viewId === 'settings');
+  const ticketsBtn = document.getElementById('btn-tickets');
+  if (ticketsBtn) ticketsBtn.classList.toggle('active', viewId === 'tickets');
 
   if (viewId === 'settings') {
     renderSettings();
+  } else if (viewId === 'tickets') {
+    renderTickets();
   } else {
     const cat = config.categories.find(c => c.id === viewId);
     if (cat) renderCategory(cat);
@@ -1693,6 +1739,17 @@ async function renderSettings() {
     showToast('Start timeout updated', 'success');
   });
 
+  // Preferred browser for opening links (e.g. Jira ticket keys)
+  const browserSelect = view.querySelector('#browser-select');
+  const browsers = await window.api.getAvailableBrowsers();
+  browserSelect.innerHTML = browsers.map(b => `<option value="${b}">${b}</option>`).join('');
+  browserSelect.value = config.settings?.browser || 'Microsoft Edge';
+  browserSelect.addEventListener('change', async () => {
+    config.settings.browser = browserSelect.value;
+    await window.api.saveConfig(config);
+    showToast('Preferred browser updated', 'success');
+  });
+
   // Animations toggle
   const animToggle = view.querySelector('#anim-toggle');
   const animSpeed = view.querySelector('#anim-speed');
@@ -1830,12 +1887,38 @@ async function renderSettings() {
     showToast('All services wiped', 'success');
   });
 
+  // Wipe everything (full factory reset — categories, services, appearance, Jira settings)
+  view.querySelector('#btn-wipe-everything').addEventListener('click', async () => {
+    if (!confirm('Reset the ENTIRE app to factory defaults? This wipes categories, services, appearance, and Jira settings. This cannot be undone.')) return;
+    await window.api.stopAll();
+    config = await window.api.resetConfig();
+    applyThemeColor();
+    applyBackgroundColor();
+    applyTextColor();
+    applyAnimationSettings();
+    statuses = await window.api.checkAll();
+    renderSidebar();
+    navigateTo('settings');
+    showToast('App reset to factory defaults', 'success');
+  });
+
+  const jiraSettingsMod = await import('./jira-settings.js');
+  jiraSettingsMod.initJiraSettings(view, { config, api: window.api, showToast });
+
+  // App version footer
+  const appVersion = await window.api.getAppVersion();
+  view.querySelector('#app-version').textContent = `Dashboard v${appVersion}`;
+
   const content = document.getElementById('content');
   content.innerHTML = '';
   content.appendChild(view);
 }
 
-// ── Category Form (add new only — editing is inline) ──
+async function renderTickets() {
+  const content = document.getElementById('content');
+  const { mountTicketsView } = await import('./jira-tickets.js');
+  await mountTicketsView(content, { config, api: window.api, showToast });
+}
 function showCategoryForm() {
   const tmpl = document.getElementById('tmpl-category-form');
   const form = tmpl.content.cloneNode(true);
@@ -2249,21 +2332,33 @@ function openLogViewer(svc) {
   const nameEl = overlay.querySelector('.log-service-name');
   const dotEl = overlay.querySelector('.log-dot');
   const contentEl = overlay.querySelector('.log-content');
+  const timestampEl = overlay.querySelector('.log-timestamp');
 
   currentLogServiceId = svc.id;
   nameEl.textContent = svc.name;
   contentEl.textContent = 'Loading logs...';
+  if (timestampEl) timestampEl.textContent = '';
   overlay.style.display = '';
 
   // Update dot status
   const isRunning = statuses[svc.id];
   dotEl.className = `log-dot ${isRunning ? 'running' : 'stopped'}`;
 
+  let lastLogLength = 0;
+
   // Fetch and auto-refresh logs
   async function refreshLogs() {
     const logs = await window.api.getServiceLogs(svc.id);
     const wasAtBottom = contentEl.scrollTop + contentEl.clientHeight >= contentEl.scrollHeight - 20;
-    contentEl.textContent = logs || '  No logs yet. Start the service to see output.';
+    if (logs) {
+      contentEl.innerHTML = colorizeLogText(logs);
+      if (timestampEl && logs.length !== lastLogLength) {
+        lastLogLength = logs.length;
+        timestampEl.textContent = `Last message: ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+      }
+    } else {
+      contentEl.textContent = '  No logs yet. Start the service to see output.';
+    }
     // Update dot
     const running = statuses[svc.id];
     dotEl.className = `log-dot ${running ? 'running' : 'stopped'}`;
@@ -2284,6 +2379,13 @@ function openLogViewer(svc) {
   overlay.querySelector('#log-clear').onclick = async () => {
     await window.api.clearServiceLogs(svc.id);
     contentEl.textContent = '  Logs cleared.';
+    lastLogLength = 0;
+    if (timestampEl) timestampEl.textContent = '';
+  };
+
+  // Pop out — open this service's logs in their own resizable OS window.
+  overlay.querySelector('#log-popout').onclick = () => {
+    window.api.openLogWindow(svc.id, svc.name);
   };
 
   // Copy For AI — condensed, low-token summary of the current run's logs.

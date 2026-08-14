@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { exec, spawn, execSync } = require('child_process');
+const jira = require('./jira');
 
 // Set the application name early (before any getPath('userData') call) so the
 // menu/About/notifications read "Dashboard" instead of "Electron".
@@ -106,9 +107,23 @@ const DEFAULT_CONFIG = {
   categories: [],
   settings: {
     pollInterval: 5000,
-    theme: 'dark'
+    theme: 'dark',
+    browser: 'Microsoft Edge'
   }
 };
+
+// Browsers we know how to launch by name via `open -a`. "System Default" is
+// a sentinel handled separately (uses Electron's shell.openExternal instead
+// of `open -a`, which respects whatever the OS default browser is).
+const AVAILABLE_BROWSERS = [
+  'System Default',
+  'Microsoft Edge',
+  'Google Chrome',
+  'Safari',
+  'Firefox',
+  'Brave Browser',
+  'Arc'
+];
 
 function loadConfig() {
   try {
@@ -590,6 +605,42 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
 
+// Standalone, resizable log windows — one per service, keyed by serviceId so
+// clicking "open in own window" twice for the same service just refocuses it
+// instead of spawning duplicates.
+const logWindows = new Map();
+
+function openLogWindow(serviceId, serviceName) {
+  const existing = logWindows.get(serviceId);
+  if (existing && !existing.isDestroyed()) {
+    existing.focus();
+    return;
+  }
+
+  const win = new BrowserWindow({
+    width: 720,
+    height: 520,
+    minWidth: 360,
+    minHeight: 240,
+    resizable: true,
+    title: `${serviceName} — Logs`,
+    backgroundColor: '#06051a',
+    webPreferences: {
+      preload: path.join(__dirname, 'log-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  win.setMenuBarVisibility(false);
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'log-window.html'), {
+    query: { serviceId, serviceName }
+  });
+
+  logWindows.set(serviceId, win);
+  win.on('closed', () => logWindows.delete(serviceId));
+}
+
 app.whenReady().then(() => {
   // Enforce single instance — bail out if another instance already holds the lock.
   if (!gotLock) {
@@ -714,9 +765,16 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('open-url', (_, url) => {
-    // Open all links in Microsoft Edge. Fall back to the default browser if
-    // Edge isn't installed / fails to launch.
-    const child = spawn('open', ['-a', 'Microsoft Edge', url]);
+    // Open links using the user's preferred browser (Settings → Browser).
+    // "System Default" bypasses `open -a` and uses the OS default directly.
+    // Falls back to the default browser if the chosen app isn't installed.
+    const preferred = config.settings?.browser || 'Microsoft Edge';
+    if (preferred === 'System Default') {
+      const { shell } = require('electron');
+      shell.openExternal(url);
+      return;
+    }
+    const child = spawn('open', ['-a', preferred, url]);
     child.on('error', () => {
       const { shell } = require('electron');
       shell.openExternal(url);
@@ -729,7 +787,12 @@ app.whenReady().then(() => {
     });
   });
 
+  ipcMain.handle('get-available-browsers', () => AVAILABLE_BROWSERS);
+
+  jira.registerJiraIpc(ipcMain, () => config, () => mainWindow);
+
   ipcMain.handle('get-config-path', () => CONFIG_PATH);
+  ipcMain.handle('get-app-version', () => app.getVersion());
 
   ipcMain.handle('open-config-file', () => {
     const { shell } = require('electron');
@@ -776,6 +839,11 @@ app.whenReady().then(() => {
   ipcMain.handle('clear-service-logs', (_, serviceId) => {
     const logPath = getLogPath(serviceId);
     try { fs.writeFileSync(logPath, ''); } catch {}
+    return true;
+  });
+
+  ipcMain.handle('open-log-window', (_, serviceId, serviceName) => {
+    openLogWindow(serviceId, serviceName);
     return true;
   });
 

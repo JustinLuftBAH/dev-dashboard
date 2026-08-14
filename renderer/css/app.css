@@ -68,17 +68,82 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   border-bottom: 1px solid var(--border);
 }
 
-/* Saturn icon pinned to the very top-right corner (title-bar region) */
-#corner-logo {
+/* Saturn icon pinned to the very top-right corner (title-bar region) — click
+   it to open the "special functions" menu (e.g. Stop All). */
+#corner-menu-wrap {
   position: fixed;
   top: 6px;
   right: 12px;
+  z-index: 50;
+}
+
+#corner-logo {
   width: 34px;
   height: 34px;
   object-fit: contain;
-  z-index: 50;
-  pointer-events: none;
+  cursor: pointer;
   -webkit-app-region: no-drag;
+  transition: filter 0.15s, transform 0.3s ease;
+}
+#corner-logo:hover { filter: drop-shadow(0 0 6px var(--purple-dim)); }
+#corner-logo.menu-open { transform: scale(1.25); filter: drop-shadow(0 0 8px var(--purple)); }
+
+.corner-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 190px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px 0;
+  border-radius: 0;
+  transform-origin: top right;
+  animation: menu-slide 0.15s ease both;
+}
+.corner-menu.open { display: block; }
+.corner-menu.closing { display: block; animation: menu-slide-out 0.12s ease both; }
+
+@keyframes menu-slide-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-4px) scale(0.97); }
+}
+
+.corner-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 14px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.corner-menu-item .corner-menu-icon {
+  flex-shrink: 0;
+  width: 13px;
+  text-align: center;
+  opacity: 0.8;
+}
+.corner-menu-item .corner-menu-icon-refresh {
+  font-size: 16px;
+  line-height: 1;
+}
+.corner-menu-item:hover { background: var(--bg-hover); color: var(--text); }
+.corner-menu-item.danger:hover { background: var(--red-dim); color: var(--red); }
+.corner-menu-item.warn:hover { background: var(--gold-dim, rgba(214, 158, 46, 0.15)); color: var(--gold); }
+.corner-menu-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 4px 0;
 }
 
 .logo-text {
@@ -124,6 +189,9 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 .nav-btn.danger:hover { color: var(--red); border-left-color: var(--red); background: var(--red-dim); }
 
 .nav-icon { font-size: 14px; width: 18px; text-align: center; }
+#btn-settings .nav-icon { font-size: 17.5px; }
+.nav-icon-svg { display: inline-flex; align-items: center; justify-content: center; }
+.nav-icon-svg svg { display: block; }
 
 .nav-count {
   margin-left: auto;
@@ -269,9 +337,11 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 }
 
 .category-count {
+  display: inline-block;
   font-family: var(--mono);
-  font-size: 10px;
-  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 10px;
   color: var(--text-dim);
   border: 1px solid var(--border);
   letter-spacing: 1px;
@@ -829,6 +899,16 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 
 .settings-section:last-child { border-bottom: none; }
 
+.app-version {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dark);
+  text-align: center;
+}
+
 .settings-section h3 {
   font-family: var(--mono);
   font-size: 11px;
@@ -836,12 +916,12 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   text-transform: uppercase;
   letter-spacing: 2px;
   margin-bottom: 12px;
-  color: var(--text-dim);
+  color: #9b96bd;
 }
 
 .settings-hint {
   font-size: 12px;
-  color: var(--text-dark);
+  color: #777393;
   margin-bottom: 12px;
 }
 
@@ -856,7 +936,7 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 
 .setting-row label {
   font-size: 12px;
-  color: var(--text-dim);
+  color: #9b96bd;
 }
 
 .config-path-row {
@@ -872,7 +952,7 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   background: var(--bg-input);
   border: 1px solid var(--border);
   font-size: 11px;
-  color: var(--text-dim);
+  color: #9b96bd;
   font-family: var(--mono);
   word-break: break-all;
 }
@@ -881,7 +961,7 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   padding: 7px 14px;
   border: 1px solid var(--border);
   background: transparent;
-  color: var(--text-dim);
+  color: #9b96bd;
   font-family: var(--mono);
   font-size: 10px;
   text-transform: uppercase;
@@ -927,6 +1007,9 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   text-transform: none;
   letter-spacing: 0;
 }
+
+.settings-section .form-row label { color: #9b96bd; }
+.settings-section .form-row .optional { color: #777393; }
 
 .form-row input, .form-row textarea {
   width: 100%;
@@ -1083,11 +1166,14 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 .category-card .cat-info .cat-icon { font-size: 16px; }
 
 .btn-edit-cat {
+  display: inline-block;
   padding: 4px 10px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-dim);
+  font-family: var(--mono);
   font-size: 11px;
+  line-height: 1;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1428,7 +1514,17 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 
 .log-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.log-timestamp {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  margin-right: 4px;
+  white-space: nowrap;
 }
 
 .log-btn {
@@ -1459,8 +1555,6 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
   font-size: 11px;
   line-height: 1.6;
   color: var(--text-dim);
-  white-space: pre-wrap;
-  word-break: break-all;
   background: #06051a;
   border: none;
 }
@@ -1476,6 +1570,34 @@ button, input, select, textarea, a { -webkit-app-region: no-drag; }
 .log-content::-webkit-scrollbar-thumb {
   background: var(--border);
 }
+
+/* ── Log line numbering ── */
+.log-line {
+  display: flex;
+  align-items: flex-start;
+}
+
+.log-line-num {
+  flex-shrink: 0;
+  width: 42px;
+  margin-right: 12px;
+  text-align: right;
+  color: var(--text-dark);
+  user-select: none;
+}
+
+.log-line-text {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Log line coloring ── */
+.log-line-error { color: #f87171; }
+.log-line-warn { color: #fbbf24; }
+.log-line-success { color: #4ade80; }
+.log-line-info { color: #7aa8d0; }
+.log-line-marker { color: var(--text-dim); font-weight: 600; }
 
 /* Clickable card info hover hint */
 .card-info:hover .service-name {
